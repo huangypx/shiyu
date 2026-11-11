@@ -13,11 +13,7 @@
   place-items: center;
   width: 15px;
   height: 15px;
-  border-radius: 4px;
-  background: var(--app-ink);
-  color: var(--app-surface);
-  font-size: 9px;
-  font-weight: 700;
+  color: var(--app-ink);
 }
 
 .title {

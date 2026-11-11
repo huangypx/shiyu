@@ -31,26 +31,15 @@
   letter-spacing: -0.01em;
 }
 
+/* 保留 22px 的居中盒：图标中心和「拾语」的横向位置与
+   之前的方块标记一致，换回方块形状时也不用再调布局。 */
 .brandMark {
   display: grid;
   place-items: center;
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border-radius: var(--app-radius-sm);
-  background: var(--app-ink);
-  color: var(--app-surface);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.brandTag {
-  padding: 1px 4px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-xs);
-  color: var(--app-ink-faint);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  color: var(--app-ink);
 }
 
 .newNote {

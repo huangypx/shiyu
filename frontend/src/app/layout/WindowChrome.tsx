@@ -1,3 +1,4 @@
+import { AudioLines } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -123,9 +124,7 @@ export default function WindowChrome({ platform }: Props) {
 
   return (
     <header className={styles.chrome} onDoubleClick={handleDoubleClick}>
-      <span className={styles.mark} aria-hidden="true">
-        言
-      </span>
+      <AudioLines size={14} className={styles.mark} aria-hidden="true" />
       <span className={styles.title}>拾语</span>
       <div className={styles.controls} data-window-controls>
         <button

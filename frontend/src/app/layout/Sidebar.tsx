@@ -1,5 +1,12 @@
 import { Button, Kbd } from '@radix-ui/themes';
-import { Activity, History, PenLine, Plus, Settings } from 'lucide-react';
+import {
+  Activity,
+  AudioLines,
+  History,
+  PenLine,
+  Plus,
+  Settings,
+} from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 
 import { useCallsStore } from '@/features/calls/callsStore';
@@ -28,11 +35,9 @@ export default function Sidebar() {
       }
     >
       <div className={styles.brand}>
-        <span className={styles.brandMark} aria-hidden="true">
-          言
-        </span>
+        {/* 品牌标记跟随导航项用线性图标，实心方块会压过 14px 的应用名。 */}
+        <AudioLines size={16} className={styles.brandMark} aria-hidden="true" />
         <span>拾语</span>
-        <span className={styles.brandTag}>OPEN</span>
       </div>
 
       <Button
