@@ -9,6 +9,9 @@ export const DESKTOP_SETTINGS_KEY = 'typeless-desktop-settings';
 // NOTES_KEY 现在只在浏览器预览里写入，桌面端首次启动会把它迁移进 SQLite。
 export const NOTES_KEY = 'typeless-notes';
 export const APPEARANCE_KEY = 'typeless-appearance';
+// 侧栏在桌面端是「折叠/展开」的布局状态，重启后应该保持原样，
+// 否则每次启动都要重新收起一次。
+export const SIDEBAR_KEY = 'typeless-sidebar';
 
 export function readStoredObject<T extends object>(
   key: string,

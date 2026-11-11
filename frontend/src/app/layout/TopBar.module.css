@@ -2,13 +2,25 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 10px;
-  height: 52px;
-  padding: 0 18px;
+  gap: 8px;
+  height: var(--app-header-height);
+  padding: 0 14px 0 18px;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface);
-  /* 顶栏其余部分是原生拖拽手柄。 */
+  /* 侧栏收起/展开时内容跟着让位，而不是整段横移一步。 */
+  transition: padding-left 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* 顶带其余部分是原生拖拽手柄。 */
   --wails-draggable: drag;
+}
+
+/* 收起时压在最左边的两个按钮。这里刻意不用「延迟淡入」的入场动画：
+   动画在不活跃的窗口里会被 WebKit 暂停，带 fill-mode 的话按钮会一直
+   停在 opacity: 0，看起来就像消失；可见性必须由布局状态决定，不能
+   依赖动画真的跑过一遍。 */
+.leading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .topbar button,
@@ -26,6 +38,7 @@
   gap: 6px;
   color: var(--app-ink-faint);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .crumb strong {
@@ -40,10 +53,20 @@
   margin-left: auto;
 }
 
+/* 侧栏收起后顶栏从窗口左边缘开始，交通灯就落在它的内边距里：
+   内容必须让到 78px 之后，否则会和按钮重叠。 */
+.topbar[data-collapsed='true'] {
+  padding-left: max(18px, var(--app-titlebar-inset));
+  /* 和侧栏的滑出同步：内容先淡出 90ms，顶带再开始让位。 */
+  transition: padding-left 200ms cubic-bezier(0.4, 0, 0.2, 1) 90ms;
+}
+
 @media (max-width: 680px) {
   .topbar {
-    height: 48px;
-    padding: 0 10px;
+    /* 抽屉形态下侧栏是覆盖层，顶栏始终贴着窗口左边缘，
+       这里的让位和侧栏是否收起无关。 */
+    padding-right: 10px;
+    padding-left: max(10px, var(--app-titlebar-inset));
   }
 
   .menu {

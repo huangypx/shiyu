@@ -103,11 +103,9 @@ export default function WindowChrome({ platform }: Props) {
 
   if (platform === 'web') return null;
 
-  // macOS 绘制真实交通灯；这条区域只负责留出位置，
-  // 并把标题栏其余部分作为拖拽手柄。
-  if (platform === 'darwin') {
-    return <div className={styles.chrome} aria-hidden="true" />;
-  }
+  // macOS 的交通灯由 AppKit 画在窗口左上角，现在直接落在应用顶带里：
+  // 侧栏头部和顶栏各自把左边让给它们，因此不再需要一行独立标题栏。
+  if (platform === 'darwin') return null;
 
   const toggleMaximise = async () => {
     await toggleMaximiseWindow();

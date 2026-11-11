@@ -1,8 +1,10 @@
 import { IconButton, Tooltip } from '@radix-ui/themes';
-import { Menu, Minimize2, X } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Menu, Minimize2, PanelLeftOpen, Plus, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useWindowActions } from '@/features/desktop/useWindowActions';
+import { useRecordingActions } from '@/features/recorder/useRecordingSession';
+import { useMediaQuery } from '@/lib/useMediaQuery';
 import { useUiStore } from '@/store/uiStore';
 
 import styles from './TopBar.module.css';
@@ -16,12 +18,25 @@ function crumbTitle(pathname: string) {
 
 export default function TopBar() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
+  const toggleSidebarCollapsed = useUiStore(
+    (state) => state.toggleSidebarCollapsed,
+  );
   const { toggleWindowMode } = useWindowActions();
+  const { clearDraft } = useRecordingActions();
+  const isDrawer = useMediaQuery('(max-width: 680px)');
+  // 侧栏收起后顶栏接管窗口左上角：第一个控件是展开按钮，
+  // 后面补一个「新建记录」，主操作不会跟着侧栏一起消失。
+  const showCollapsedControls = sidebarCollapsed && !isDrawer;
 
   return (
-    <header className={styles.topbar}>
+    <header
+      className={styles.topbar}
+      data-collapsed={showCollapsedControls ? 'true' : 'false'}
+    >
       <IconButton
         className={styles.menu}
         variant="ghost"
@@ -33,6 +48,36 @@ export default function TopBar() {
       >
         {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
       </IconButton>
+
+      {showCollapsedControls && (
+        <div className={styles.leading}>
+          <Tooltip content="展开侧栏 (⌘\)">
+            <IconButton
+              variant="ghost"
+              color="gray"
+              size="2"
+              aria-label="展开侧栏"
+              onClick={toggleSidebarCollapsed}
+            >
+              <PanelLeftOpen size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip content="新建记录 (⌘N)">
+            <IconButton
+              variant="ghost"
+              color="gray"
+              size="2"
+              aria-label="新建记录"
+              onClick={() => {
+                clearDraft();
+                void navigate('/');
+              }}
+            >
+              <Plus size={16} />
+            </IconButton>
+          </Tooltip>
+        </div>
+      )}
 
       <div className={styles.crumb}>
         <span>工作区</span>

@@ -5,11 +5,22 @@
   width: var(--app-sidebar-width);
   height: 100%;
   min-height: 0;
-  padding: 14px 12px;
   border-right: 1px solid var(--app-border);
   background: var(--app-surface-subtle);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  /* 折叠动画只动外边距：直接收窄宽度会把内部按钮和导航项一起压扁，
+     动画中途文字换行、图标错位。 */
+  transition:
+    margin-left 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-right-color 200ms ease;
+}
+
+/* 折叠分两步：内容先淡出，侧栏再整体滑走；展开相反，滑到位之后内容
+   才淡入。否则品牌会在滑动途中从原生交通灯下面横穿过去。 */
+.header,
+.body {
+  opacity: 1;
+  transition: opacity 120ms ease 150ms;
 }
 
 /* 有系统材质时侧栏半透明，内容区仍然不透明。 */
@@ -20,19 +31,25 @@
   backdrop-filter: saturate(180%) blur(24px);
 }
 
-.brand {
+/* 顶带同时容纳原生交通灯、品牌和收起按钮：交通灯由 AppKit 画在
+   x = 9–69，内容从它们右侧开始，因此这里不能再用普通的侧栏内边距。 */
+.header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  padding: 2px 8px;
-  color: var(--app-ink);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  height: var(--app-header-height);
+  padding: 0 8px 0 max(20px, var(--app-titlebar-inset));
+  --wails-draggable: drag;
 }
 
-/* 保留 22px 的居中盒：图标中心和「拾语」的横向位置与
-   之前的方块标记一致，换回方块形状时也不用再调布局。 */
+/* 顶带是拖拽手柄，里面的按钮要退出拖拽，否则点不动。 */
+.header button {
+  --wails-draggable: no-drag;
+}
+
+/* 保留 22px 的居中盒：图标中心和导航图标落在同一列上，
+   换回方块标记时也不用再调布局。 */
 .brandMark {
   display: grid;
   place-items: center;
@@ -42,9 +59,32 @@
   color: var(--app-ink);
 }
 
+.brandName {
+  color: var(--app-ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.headerToggle {
+  margin-left: auto;
+}
+
+/* 头部固定、其余内容滚动：侧栏变矮时品牌行不会跟着滚走。 */
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 2px 12px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .newNote {
   width: 100%;
-  margin: 18px 0 12px;
+  margin: 6px 0 12px;
   justify-content: flex-start;
 }
 
@@ -98,6 +138,26 @@
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--app-border);
+}
+
+/* 桌面折叠：整块侧栏平移出窗口左侧，主内容自动补位。此时顶栏接管
+   窗口左上角，交通灯的让位改由 TopBar 负责。只在桌面断点以上生效，
+   小窗口里的侧栏是覆盖层抽屉，显隐由 .open 决定。 */
+@media (min-width: 681px) {
+  .sidebar[data-collapsed='true'] {
+    margin-left: calc(-1 * var(--app-sidebar-width));
+    border-right-color: transparent;
+    /* 内容淡出用 90ms，滑出再等 90ms 才开始。 */
+    transition:
+      margin-left 200ms cubic-bezier(0.4, 0, 0.2, 1) 90ms,
+      border-right-color 200ms ease 90ms;
+  }
+
+  .sidebar[data-collapsed='true'] .header,
+  .sidebar[data-collapsed='true'] .body {
+    opacity: 0;
+    transition: opacity 90ms ease;
+  }
 }
 
 @media (max-width: 680px) {

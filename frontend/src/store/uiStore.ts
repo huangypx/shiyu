@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import {
   APPEARANCE_KEY,
   readStoredObject,
+  SIDEBAR_KEY,
   writeStored,
 } from '@/services/storage';
 
@@ -12,7 +13,11 @@ export type Appearance = 'system' | 'light' | 'dark';
 export type Notice = { id: number; message: string; tone: NoticeTone };
 
 type UiState = {
+  // 抽屉：只在小窗口（≤680px）有意义的覆盖层显隐。
   sidebarOpen: boolean;
+  // 折叠：桌面端把侧栏移出布局，顶栏接管窗口左上角。
+  // 两种形态的按钮职责不同，不能合成同一个状态。
+  sidebarCollapsed: boolean;
   settingsOpen: boolean;
   notice: Notice | null;
   bubbleFlash: 'success' | 'error' | '';
@@ -20,6 +25,7 @@ type UiState = {
   openSidebar: () => void;
   closeSidebar: () => void;
   toggleSidebar: () => void;
+  toggleSidebarCollapsed: () => void;
   openSettings: () => void;
   closeSettings: () => void;
   notify: (message: string, tone?: NoticeTone) => void;
@@ -34,6 +40,9 @@ let flashTimer: number | undefined;
 
 export const useUiStore = create<UiState>()((set) => ({
   sidebarOpen: false,
+  sidebarCollapsed: readStoredObject<{ collapsed: boolean }>(SIDEBAR_KEY, {
+    collapsed: false,
+  }).collapsed,
   settingsOpen: false,
   notice: null,
   bubbleFlash: '',
@@ -44,6 +53,12 @@ export const useUiStore = create<UiState>()((set) => ({
   closeSidebar: () => set({ sidebarOpen: false }),
   toggleSidebar: () =>
     set((current) => ({ sidebarOpen: !current.sidebarOpen })),
+  toggleSidebarCollapsed: () =>
+    set((current) => {
+      const collapsed = !current.sidebarCollapsed;
+      writeStored(SIDEBAR_KEY, { collapsed });
+      return { sidebarCollapsed: collapsed };
+    }),
   openSettings: () => set({ settingsOpen: true, sidebarOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
   notify: (message, tone = 'success') =>
