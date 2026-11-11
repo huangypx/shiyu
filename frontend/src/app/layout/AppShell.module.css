@@ -7,6 +7,41 @@
   background: var(--app-canvas);
 }
 
+/* 收起时先让界面淡出，原生窗口 160ms 后才开始缩；这里在
+   140ms 时把整棵外壳设为 hidden，窗口缩小时的内容重排和
+   滚动条都不会被看到。滚动容器同时关掉 overflow，双保险。 */
+.shell[data-leaving='true'] {
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.985);
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out,
+    visibility 0s linear 140ms;
+}
+
+.shell[data-leaving='true'] .scroll {
+  overflow: hidden;
+}
+
+/* 展开落定后 AppShell 才挂载，从遮罩背后淡入；起点轻微缩放，
+   让主窗口在记忆位置出现时有一点生长感。 */
+.shell[data-entering='true'] {
+  animation: shellEnter 200ms ease-out both;
+}
+
+@keyframes shellEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .body {
   display: flex;
   flex: 1;

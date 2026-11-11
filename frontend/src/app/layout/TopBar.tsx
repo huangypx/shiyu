@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useTitlebarDoubleClick } from '@/features/desktop/useTitlebarDoubleClick';
 import { useWindowActions } from '@/features/desktop/useWindowActions';
+import { useWindowTransitionStore } from '@/features/desktop/windowTransitionStore';
 import { useRecordingActions } from '@/features/recorder/useRecordingSession';
 import { formatShortcut } from '@/lib/shortcut';
 import { useMediaQuery } from '@/lib/useMediaQuery';
@@ -30,6 +31,9 @@ export default function TopBar() {
     (state) => state.toggleSidebarCollapsed,
   );
   const { toggleWindowMode } = useWindowActions();
+  const transitioning = useWindowTransitionStore(
+    (state) => state.transition !== null,
+  );
   const { clearDraft } = useRecordingActions();
   const isDrawer = useMediaQuery('(max-width: 680px)');
   const platform = useDesktopStore((state) => state.runtime.platform);
@@ -97,12 +101,13 @@ export default function TopBar() {
       </div>
 
       <div className={styles.actions}>
-        <Tooltip content="浮动窗口">
+        <Tooltip content="收进悬浮球">
           <IconButton
             variant="ghost"
             color="gray"
             size="2"
-            aria-label="切换浮动窗口"
+            aria-label="收进悬浮球"
+            disabled={transitioning}
             onClick={toggleWindowMode}
           >
             <Minimize2 size={15} />

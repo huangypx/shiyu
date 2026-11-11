@@ -5,6 +5,7 @@ import { useMicLevelVar } from '@/features/recorder/useMicLevel';
 import { saveBubblePosition } from '@/services/bridge';
 
 import styles from './BubbleWindow.module.css';
+import { useWindowTransitionStore } from './windowTransitionStore';
 
 type Props = {
   // 麦克风还没确认可用时不能显示录音态，否则用户会以为
@@ -23,6 +24,10 @@ const CLICK_DELAY = 260;
 const DRAG_THRESHOLD = 4;
 // 短于这个时长的按压即使指针略有漂移也算点击。
 const CLICK_MAX_DURATION = 400;
+// macOS 的 Wails 拖拽运行时会接管 dblclick 并执行系统标题栏
+// 双击（缩放或最小化）。第一下轻点后把拖拽属性关掉，保护时间
+// 必须覆盖系统双击窗口；默认约 500ms，太短会漏掉慢一点的双击。
+const DRAG_REARM_DELAY = 500;
 
 export default function BubbleWindow({
   isArming,
@@ -33,6 +38,7 @@ export default function BubbleWindow({
   onExpand,
 }: Props) {
   const clickTimer = useRef<number | null>(null);
+  const rearmTimer = useRef<number | null>(null);
   const lastClickAt = useRef(0);
   const press = useRef<{
     startedAt: number;
@@ -45,6 +51,8 @@ export default function BubbleWindow({
   // 音量写在外壳上：球体和音晕都读同一个变量，音晕又不受
   // 球体缩放影响，放大后仍能完整落在 92x92 的窗口里。
   const shellRef = useRef<HTMLElement>(null);
+  const transition = useWindowTransitionStore((state) => state.transition);
+  const leaving = transition?.direction === 'expand';
   useMicLevelVar(shellRef);
 
   const stopPositionPolling = () => {
@@ -71,12 +79,37 @@ export default function BubbleWindow({
   useEffect(
     () => () => {
       if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+      if (rearmTimer.current !== null) {
+        window.clearTimeout(rearmTimer.current);
+        rearmTimer.current = null;
+      }
       stopPositionPolling();
     },
     [],
   );
 
+  // 只改 shell 上的内联变量：按钮和图标都继承它，拖拽区仍
+  // 由第一下 mousedown 时的 drag 值启动。
+  const setDragDisabled = (disabled: boolean) => {
+    shellRef.current?.style.setProperty(
+      '--wails-draggable',
+      disabled ? 'no-drag' : 'drag',
+    );
+  };
+
+  const disarmDrag = () => {
+    setDragDisabled(true);
+    if (rearmTimer.current !== null) window.clearTimeout(rearmTimer.current);
+    rearmTimer.current = window.setTimeout(() => {
+      rearmTimer.current = null;
+      setDragDisabled(false);
+    }, DRAG_REARM_DELAY);
+  };
+
   const handleTap = () => {
+    // 第一下轻点后立刻关掉拖拽区：第二下 mousedown/dblclick
+    // 落到 no-drag 上，Wails 不会再调用原生标题栏双击。
+    disarmDrag();
     const now = Date.now();
     if (now - lastClickAt.current < CLICK_DELAY) {
       lastClickAt.current = 0;
@@ -124,7 +157,10 @@ export default function BubbleWindow({
     stopPositionPolling();
     if (!current || event.button !== 0) return;
     if (current.moved) {
-      // 原生拖拽移动了窗口，记下它落在哪里。
+      // 原生拖拽移动了窗口，记下它落在哪里。拖动不算一次点击，
+      // 要把上一次点击的时间戳清掉，避免紧接着的一次点击被误判
+      // 成双击。
+      lastClickAt.current = 0;
       void saveBubblePosition();
       return;
     }
@@ -150,6 +186,7 @@ export default function BubbleWindow({
       ref={shellRef}
       className={styles.shell}
       data-state={state}
+      data-leaving={leaving ? 'true' : undefined}
       aria-label="拾语浮动录音按钮"
       // 放在外壳上让圆圈的透明边缘和 SVG 图标也能继承；
       // 右键菜单仍由 Wails v3 的原生 ContextMenu 绘制。

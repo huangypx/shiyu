@@ -67,6 +67,16 @@ type Controller struct {
 	// cancelItem 是浮动球右键菜单里的「取消这段转写」。菜单由
 	// RegisterBubbleMenu 创建，控制器只负责按录音状态切换可用性。
 	cancelItem *application.MenuItem
+
+	// 窗口切换是一次异步动画：transitioning 期间 SetMode 直接
+	// 忽略新请求，避免两次动画互相追着改 frame。
+	transitioning    bool
+	transitionCancel chan struct{}
+	// lastMainBounds 只在内存里记住收起前的主窗口位置，重启后
+	// 回到默认尺寸，不引入新的配置字段。
+	lastMainBounds    application.Rect
+	hasLastMainBounds bool
+	reduceMotion      bool
 }
 
 type point struct {
@@ -100,6 +110,11 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 		// 就绪后按当前模式补一次 chrome，覆盖「以球启动」和
 		// 首次显示时窗口尚未创建的情况。
 		c.window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+			// 动画中途的 RuntimeReady 不能按当前模式重刷 chrome，
+			// 否则会把刚切好的 borderless 或位置覆盖掉。
+			if c.isTransitioning() {
+				return
+			}
 			c.applyWindowChrome()
 			// 启动时屏幕缓存可能还没就绪，等 WebView 运行时准备好后
 			// 再按保存位置放一次浮动球。
@@ -108,7 +123,8 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 	}
 
 	if c.app != nil && c.app.GetDesktopConfig().StartInBubble {
-		if err := c.SetMode(ModeBubble); err != nil {
+		// 启动路径不能播动画：窗口还没显示，前端也还没准备好遮罩。
+		if err := c.applyModeImmediately(ModeBubble); err != nil {
 			return err
 		}
 		c.showWindow()
@@ -117,7 +133,9 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 }
 
 func (c *Controller) ServiceShutdown() error {
-	// 拖拽可能在没有干净 mouse-up 的情况下结束，退出前再存一次。
+	// 先停掉在途动画，再保存位置：展开途中退出时不能把中间的
+	// 窗口坐标写成悬浮球位置。
+	c.cancelTransition()
 	_ = c.persistBubblePosition()
 
 	c.mu.Lock()
@@ -177,37 +195,332 @@ func (c *Controller) SetMode(mode string) error {
 		}
 	}
 
-	// 先写模式再改窗口：WindowRuntimeReady 回调可能在尺寸/样式
-	// 调用之间插入，回调按当前模式补 chrome，不能读到旧模式。
+	c.mu.RLock()
+	current := c.mode
+	transitioning := c.transitioning
+	reduceMotion := c.reduceMotion
+	c.mu.RUnlock()
+
+	// 动画期间的重复请求直接忽略：顶栏已禁用，右键菜单也可能
+	// 在窗口还没落定时被触发，排队只会让 frame 来回抖。
+	if transitioning || current == mode {
+		return nil
+	}
+	if reduceMotion {
+		return c.applyModeImmediately(mode)
+	}
+	return c.beginTransition(mode)
+}
+
+// SetReduceMotion 由前端把 prefers-reduced-motion 同步过来。原生
+// 窗口动画读不到 CSS 媒体查询，只能由宿主代为关掉。
+func (c *Controller) SetReduceMotion(enabled bool) error {
+	c.mu.Lock()
+	c.reduceMotion = enabled
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *Controller) isTransitioning() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.transitioning
+}
+
+// cancelTransition 让在途动画在下一帧退出。关闭通道而不是等
+// goroutine 自己结束，退出流程才不会被一帧 frame 卡住。
+func (c *Controller) cancelTransition() {
+	c.mu.Lock()
+	if c.transitionCancel != nil {
+		close(c.transitionCancel)
+		c.transitionCancel = nil
+	}
+	c.transitioning = false
+	c.mu.Unlock()
+}
+
+// beginTransition 负责收起/展开的公共编排：先占住 transitioning，
+// 再计算两端矩形、切 chrome、放宽尺寸约束，最后交给动画协程。
+func (c *Controller) beginTransition(mode string) error {
+	window := c.window
+
+	c.mu.Lock()
+	if c.transitioning || c.mode == mode {
+		c.mu.Unlock()
+		return nil
+	}
+	c.transitioning = true
+	cancel := make(chan struct{})
+	c.transitionCancel = cancel
+	c.mu.Unlock()
+
+	direction := transitionShrink
+	anchor := anchorBottomRight
+	var from, to application.Rect
+	var mainBounds application.Rect
+	rememberMain := false
+
+	if mode == ModeBubble {
+		// 先记下主窗口位置；它必须是切换 chrome 之前的值。
+		mainBounds = window.Bounds()
+		rememberMain = mainBounds.Width >= mainMinWidth &&
+			mainBounds.Height >= mainMinHeight
+		// borderless 可能带走标题栏高度，动画起点以切换后的
+		// 真实 frame 为准，否则第一帧会跳。
+		c.applyBubbleChrome(window)
+		from = window.Bounds()
+		to = c.bubbleRect()
+		anchor = anchorCorner(
+			to.X+to.Width/2,
+			to.Y+to.Height/2,
+			mainBounds.X+mainBounds.Width/2,
+			mainBounds.Y+mainBounds.Height/2,
+		)
+		// 收缩过程中保持可见；最终置顶跟随用户配置。
+		window.SetAlwaysOnTop(true)
+	} else {
+		direction = transitionExpand
+		from = window.Bounds()
+		to = c.restoreMainTarget()
+		// 展开不画水滴；anchor 保留默认值，事件载荷保持一致。
+		// 悬浮球淡出期间仍置顶，落定后 applySettledMode 恢复普通层级。
+		window.SetAlwaysOnTop(true)
+	}
+
+	// 只有收起需要逐帧改 frame；展开是等球淡出后直接回到记忆
+	// 的主窗口位置。动画期间不能保留 92px 的 max 或 640px 的
+	// min，否则中间帧会被系统夹住。
+	if mode == ModeBubble {
+		window.SetMaxSize(0, 0)
+		window.SetMinSize(0, 0)
+	}
+
+	if from.Width <= 0 || from.Height <= 0 || to.Width <= 0 || to.Height <= 0 {
+		// 原生窗口还没就绪或屏幕信息缺失：退回无动画路径，
+		// 至少保证模式和尺寸最终一致。
+		c.resetTransition(cancel)
+		return c.applyModeImmediately(mode)
+	}
+
+	if rememberMain {
+		c.rememberMainBounds(mainBounds)
+	}
+
+	// 动画开始前可能已经退出（关闭应用）；不要给已经取消的
+	// 切换再发事件或启动协程。
+	c.mu.RLock()
+	stillCurrent := c.transitionCancel == cancel
+	c.mu.RUnlock()
+	if !stillCurrent {
+		return nil
+	}
+
+	duration := shrinkDuration
+	var ease func(float64) float64 = easeInOutCubic
+	eventDuration := shrinkDuration
+	if mode == ModeMain {
+		// 展开没有逐帧动画：这 160ms 只用来让悬浮球淡出，
+		// 然后把窗口直接放回记忆的位置。
+		duration = 0
+		ease = nil
+		eventDuration = expandLeadIn
+	}
+	c.emitTransition(transitionEvent{
+		Direction:  direction,
+		DurationMs: int(eventDuration / time.Millisecond),
+		Anchor:     anchor,
+		From:       boundsFromRect(from),
+		To:         boundsFromRect(to),
+	})
+	go c.runTransition(mode, from, to, duration, ease, cancel)
+	return nil
+}
+
+// runTransition 先等前端挂好遮罩、悬浮球淡出。收起逐帧推进
+// 窗口 frame，展开直接把窗口落到记忆位置。defer 保证无论完成、
+// 取消还是异常都不会把 transitioning 永久留在 true。
+func (c *Controller) runTransition(
+	mode string,
+	from, to application.Rect,
+	duration time.Duration,
+	ease func(float64) float64,
+	cancel chan struct{},
+) {
+	defer func() {
+		c.mu.Lock()
+		// 只清自己这一次的标记；cancelTransition 已经清过时
+		// 不能顺手把之后可能开始的新切换也关掉。
+		if c.transitionCancel == cancel {
+			c.transitionCancel = nil
+			c.transitioning = false
+		}
+		c.mu.Unlock()
+	}()
+
+	leadIn := shrinkLeadIn
+	if mode == ModeMain {
+		leadIn = expandLeadIn
+	}
+	select {
+	case <-time.After(leadIn):
+	case <-cancel:
+		return
+	}
+
+	// 展开只等悬浮球淡出，随后直接把原生窗口放到记忆的位置；
+	// 窗口在屏幕上移动的过程不可见，用户看到的是主界面在
+	// 原来的位置淡入，而不是悬浮球飞过去。
+	if mode == ModeMain {
+		c.applySettledMode(mode, to)
+		return
+	}
+
+	if !animateWindowBounds(from, to, duration, ease, c.setWindowBounds, cancel) {
+		return
+	}
+	c.applySettledMode(mode, to)
+}
+
+// applySettledMode 把窗口落到最终状态并通知 React 换路由。chrome、
+// 尺寸约束和 bounds 的顺序不能反：styleMask 切换可能改变 frame，
+// 所以最后一次 setWindowBounds 必须在恢复 chrome 之后。展开时先
+// 移窗口再恢复 chrome，避免交通灯在球窗位置闪一帧。
+func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
+	window := c.window
+	if window == nil {
+		return
+	}
+	// 先把约束放开再落 bounds：收起的 92px max 或展开的 640px min
+	// 如果还生效，会在窗口移动到目标位置前先夹一帧。
+	window.SetMaxSize(0, 0)
+	window.SetMinSize(0, 0)
+	if mode == ModeBubble {
+		c.applyBubbleChrome(window)
+		c.setWindowBounds(bounds)
+	} else {
+		// 展开时先把透明窗口移到主窗口位置，再恢复 titled chrome；
+		// 反过来会让交通灯在 92px 的球窗位置闪一下。chrome 切换
+		// 可能改 frame，所以最后再落一次 bounds。
+		c.setWindowBounds(bounds)
+		c.applyMainChrome(window)
+		c.setWindowBounds(bounds)
+	}
+	if mode == ModeBubble {
+		window.SetMaxSize(bubbleSize, bubbleSize)
+		window.SetMinSize(bubbleSize, bubbleSize)
+		window.SetAlwaysOnTop(c.keepBubbleOnTop())
+	} else {
+		window.SetMaxSize(0, 0)
+		window.SetMinSize(mainMinWidth, mainMinHeight)
+		window.SetAlwaysOnTop(false)
+	}
+
 	c.mu.Lock()
 	c.mode = mode
 	c.mu.Unlock()
+	if mode == ModeMain {
+		// 从悬浮球展开时应用可能不在前台；落定后主动取得焦点，
+		// 否则窗口虽然恢复在原位，仍会被其他应用盖住。
+		window.Focus()
+	}
+	c.emitState()
+}
 
+// applyModeImmediately 是启动、减少动效和异常回退共用的无动画
+// 路径：直接切 chrome、约束和 bounds，然后发一次状态。
+func (c *Controller) applyModeImmediately(mode string) error {
+	if err := c.ensureRuntime(); err != nil {
+		return err
+	}
+	window := c.window
 	if mode == ModeBubble {
-		c.applyBubbleChrome(window)
-		window.SetMaxSize(bubbleSize, bubbleSize)
-		window.SetMinSize(bubbleSize, bubbleSize)
-		window.SetSize(bubbleSize, bubbleSize)
-		window.SetAlwaysOnTop(c.keepBubbleOnTop())
-		c.positionBubble()
-	} else {
-		// 先记下球所在的屏幕，再放大：主窗口应该在这块屏幕上居中，
-		// 而不是像 v3 的 Center() 那样固定回到主屏。
-		screen, _ := window.GetScreen()
-		c.applyMainChrome(window)
-		window.SetMaxSize(0, 0)
-		window.SetMinSize(mainMinWidth, mainMinHeight)
-		window.SetSize(mainWidth, mainHeight)
-		window.SetAlwaysOnTop(false)
-		if screen != nil {
-			window.SetScreen(screen)
-		} else {
-			window.Center()
+		c.mu.RLock()
+		current := c.mode
+		c.mu.RUnlock()
+		if current == ModeMain {
+			c.rememberMainBounds(window.Bounds())
+		}
+		c.applySettledMode(mode, c.bubbleRect())
+		return nil
+	}
+	c.applySettledMode(mode, c.restoreMainTarget())
+	return nil
+}
+
+func (c *Controller) resetTransition(cancel chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.transitionCancel == cancel {
+		c.transitionCancel = nil
+		c.transitioning = false
+	}
+}
+
+func (c *Controller) rememberMainBounds(bounds application.Rect) {
+	if bounds.Width < mainMinWidth || bounds.Height < mainMinHeight {
+		return
+	}
+	c.mu.Lock()
+	c.lastMainBounds = bounds
+	c.hasLastMainBounds = true
+	c.mu.Unlock()
+}
+
+// bubbleRect 计算悬浮球目标。保存位置仍落在某块屏幕上时沿用那块
+// 屏幕和坐标，否则回到当前屏幕的右下角。
+func (c *Controller) bubbleRect() application.Rect {
+	area := c.bubbleWorkArea()
+	var saved *point
+	if c.app != nil {
+		if position := c.app.GetDesktopConfig().BubblePosition; position != nil {
+			candidate := point{X: position.X, Y: position.Y}
+			if screen := c.screenAt(candidate); screen != nil {
+				area = screen.WorkArea
+				saved = &candidate
+			}
+		}
+	}
+	return bubbleTargetBounds(area, saved)
+}
+
+func (c *Controller) bubbleWorkArea() application.Rect {
+	if screen := c.windowScreen(); screen != nil {
+		return screen.WorkArea
+	}
+	// 没有屏幕信息时退回常见笔记本尺寸，与 v2 一致。
+	return application.Rect{Width: 1440, Height: 900}
+}
+
+// restoreMainTarget 返回收起前记住的主窗口矩形。屏幕布局变了
+// 或没有记录时，在悬浮球所在屏幕居中默认尺寸。
+func (c *Controller) restoreMainTarget() application.Rect {
+	c.mu.RLock()
+	last := c.lastMainBounds
+	hasLast := c.hasLastMainBounds
+	c.mu.RUnlock()
+
+	if hasLast {
+		center := point{X: last.X + last.Width/2, Y: last.Y + last.Height/2}
+		if screen := c.screenAt(center); screen != nil {
+			return clampRectToWorkArea(last, screen.WorkArea)
 		}
 	}
 
-	c.emitState()
-	return nil
+	area := c.bubbleWorkArea()
+	return clampRectToWorkArea(centeredRect(area, mainWidth, mainHeight), area)
+}
+
+func (c *Controller) setWindowBounds(bounds application.Rect) {
+	if c.window == nil {
+		return
+	}
+	setNativeWindowBounds(c.window, bounds)
+}
+
+func (c *Controller) emitTransition(event transitionEvent) {
+	if c.desktop != nil {
+		c.desktop.Event.Emit("desktop:transition", event)
+	}
 }
 
 func (c *Controller) ToggleMode() error {
@@ -221,16 +534,28 @@ func (c *Controller) ToggleMode() error {
 }
 
 func (c *Controller) ShowMainWindow() error {
-	if err := c.SetMode(ModeMain); err != nil {
+	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	c.showWindow()
-	return nil
+	// 隐藏状态下展开时，先让窗口以悬浮球形态出现并聚焦，再开始
+	// 长大；否则动画可能在一个不可见的窗口上播放。
+	if !c.window.IsVisible() {
+		c.window.Show()
+		c.applyWindowChrome()
+		c.positionBubbleIfNeeded()
+	}
+	c.window.Focus()
+	return c.SetMode(ModeMain)
 }
 
 func (c *Controller) HideWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
+	}
+	// 动画途中隐藏会把窗口停在中间尺寸，下一次展开就找不到
+	// 正确的悬浮球矩形；直接忽略这次请求。
+	if c.isTransitioning() {
+		return nil
 	}
 	_ = c.persistBubblePosition()
 	c.window.Hide()
@@ -275,8 +600,9 @@ func (c *Controller) SaveBubblePosition() error {
 	}
 	c.mu.RLock()
 	mode := c.mode
+	transitioning := c.transitioning
 	c.mu.RUnlock()
-	if mode != ModeBubble {
+	if mode != ModeBubble || transitioning {
 		return nil
 	}
 	return c.persistBubblePosition()
@@ -289,8 +615,11 @@ func (c *Controller) persistBubblePosition() error {
 	c.mu.RLock()
 	mode := c.mode
 	started := c.started
+	transitioning := c.transitioning
 	c.mu.RUnlock()
-	if !started || mode != ModeBubble || !c.window.IsVisible() {
+	// 展开途中窗口正在移动，此时保存会覆盖掉用户原来拖到的
+	// 悬浮球坐标；退出流程会先 cancelTransition 再走到这里。
+	if !started || transitioning || mode != ModeBubble || !c.window.IsVisible() {
 		return nil
 	}
 
@@ -314,29 +643,7 @@ func (c *Controller) positionBubble() {
 	if c.window == nil {
 		return
 	}
-	screen := c.windowScreen()
-	if screen == nil {
-		return
-	}
-	area := screen.WorkArea
-	position := point{
-		X: area.X + area.Width - bubbleSize - bubbleRightInset,
-		Y: area.Y + area.Height - bubbleSize - bubbleBottomInset,
-	}
-
-	if c.app != nil {
-		if saved := c.app.GetDesktopConfig().BubblePosition; saved != nil {
-			savedPoint := point{X: saved.X, Y: saved.Y}
-			if target := c.screenAt(savedPoint); target != nil {
-				// 保存的位置仍在某块屏幕上，原样恢复。
-				area = target.WorkArea
-				position = savedPoint
-			}
-		}
-	}
-
-	position = clampPoint(position, area)
-	c.window.SetPosition(position.X, position.Y)
+	c.setWindowBounds(c.bubbleRect())
 }
 
 // OpenSettings 展开主窗口，并请求渲染层打开偏好设置对话框，
@@ -522,7 +829,13 @@ func (c *Controller) ensureMainMode() error {
 	}
 	c.mu.RLock()
 	mode := c.mode
+	transitioning := c.transitioning
 	c.mu.RUnlock()
+	// 动画期间窗口正在改尺寸，系统最小化/最大化会把中间 frame
+	// 写进 AppKit 的还原栈；等落定后再允许。
+	if transitioning {
+		return errors.New("window controls are unavailable during a transition")
+	}
 	if mode != ModeMain {
 		return errors.New("window controls are only available in main mode")
 	}
@@ -543,18 +856,24 @@ func (c *Controller) showWindow() {
 		return
 	}
 	c.window.Show()
+	// 动画途中热键也可能把窗口叫出来；这时不能按旧模式重刷
+	// chrome 或位置，否则会把收缩/展开的中间 frame 拽回去。
+	if c.isTransitioning() {
+		return
+	}
 	c.applyWindowChrome()
 
-	// 首次显示时 AppKit 会把窗口放到初始位置，可能覆盖 SetMode 里
-	// 的 SetPosition。显示完成后再按保存的位置放一次。
+	// 首次显示时 AppKit 会把窗口放到初始位置，可能覆盖 SetPosition
+	// 的落点。显示完成后再按保存的位置放一次。
 	c.positionBubbleIfNeeded()
 }
 
 func (c *Controller) positionBubbleIfNeeded() {
 	c.mu.RLock()
 	mode := c.mode
+	transitioning := c.transitioning
 	c.mu.RUnlock()
-	if mode == ModeBubble {
+	if mode == ModeBubble && !transitioning {
 		c.positionBubble()
 	}
 }
@@ -563,8 +882,9 @@ func (c *Controller) applyWindowChrome() {
 	c.mu.RLock()
 	mode := c.mode
 	window := c.window
+	transitioning := c.transitioning
 	c.mu.RUnlock()
-	if window == nil {
+	if window == nil || transitioning {
 		return
 	}
 	if mode == ModeBubble {

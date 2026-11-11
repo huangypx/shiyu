@@ -1,5 +1,5 @@
-import { act, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import BubbleWindow from './BubbleWindow';
 
@@ -54,11 +54,21 @@ function bubbleShell() {
   return screen.getByRole('main');
 }
 
+function clickBubble() {
+  const button = bubbleButton();
+  fireEvent.mouseDown(button, { button: 0, screenX: 100, screenY: 100 });
+  fireEvent.mouseUp(button, { button: 0, screenX: 100, screenY: 100 });
+}
+
 describe('BubbleWindow', () => {
   beforeEach(() => {
     bridge.saveBubblePosition.mockReset();
     mic.subscribeMicLevel.mockClear();
     mic.reset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('待录音时只显示开始录音，不出现停止图标', () => {
@@ -98,5 +108,48 @@ describe('BubbleWindow', () => {
     expect(
       screen.getByRole('button', { name: '正在整理文字' }),
     ).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('双击只展开主窗口，不误触录音', () => {
+    vi.useFakeTimers();
+    const { props } = renderBubble();
+
+    clickBubble();
+    // 第一下轻点后暂时关掉原生拖拽区，第二下才不会落到
+    // macOS 的标题栏双击手势上。
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    void act(() => vi.advanceTimersByTime(120));
+    clickBubble();
+
+    expect(props.onExpand).toHaveBeenCalledTimes(1);
+    expect(props.onToggle).not.toHaveBeenCalled();
+
+    void act(() => vi.advanceTimersByTime(500));
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'drag',
+    );
+  });
+
+  it('单击仍在双击窗口结束后切换录音，并恢复拖拽', () => {
+    vi.useFakeTimers();
+    const { props } = renderBubble();
+
+    clickBubble();
+    void act(() => vi.advanceTimersByTime(259));
+    expect(props.onToggle).not.toHaveBeenCalled();
+
+    void act(() => vi.advanceTimersByTime(1));
+    expect(props.onToggle).toHaveBeenCalledTimes(1);
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    void act(() => vi.advanceTimersByTime(500));
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'drag',
+    );
   });
 });

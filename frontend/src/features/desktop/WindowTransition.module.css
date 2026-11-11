@@ -1,0 +1,95 @@
+/* 窗口切换时盖住整个 WebView 的过渡层。窗口本身是透明的，
+   只有水滴有颜色；窗口边缘外会露出桌面，形成窗口收成悬浮球的
+   视觉。遮罩不参与布局，也不进入可访问性树。 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  cursor: default;
+  /* 动画进行中挡住误触；落定后立刻把交互还给悬浮球/主界面。 */
+  pointer-events: auto;
+  animation: overlayIn 100ms ease-out both;
+}
+
+.overlay[data-direction='expand'] {
+  /* 展开阶段遮罩只负责挡住点击，悬浮球自己淡出；窗口先回到
+     记忆位置，等 state 事件到达后才铺满画布。 */
+  animation: none;
+}
+
+.overlay[data-direction='expand'][data-phase='settling'] {
+  /* 原生窗口在 state 事件时已经跳到记忆位置，这块画布先盖住
+     新窗口，再和主界面的入场一起淡出，避免透明窗口闪一帧。 */
+  background: var(--app-canvas);
+  animation: overlayOut 160ms ease-in both;
+}
+
+.overlay[data-phase='settling'] {
+  pointer-events: none;
+  animation: overlayOut 160ms ease-in both;
+}
+
+.droplet {
+  position: absolute;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: var(--droplet-width, 100%);
+  height: var(--droplet-height, 100%);
+  border: calc(6px * var(--droplet-border, 0)) solid rgba(255, 255, 255, 0.94);
+  border-radius: var(--droplet-radius, 0);
+  background: var(--app-canvas);
+  box-shadow: 0 6px 16px rgb(15 15 17 / calc(0.28 * var(--droplet-shadow, 0)));
+}
+
+/* 收起时水滴只贴住 anchor 角，另一侧的边缘由 width/height 和
+   inset 推导；窗口向悬浮球收，水滴始终对着球那一侧。 */
+.droplet[data-anchor='top-left'] {
+  top: var(--droplet-inset, 0);
+  left: var(--droplet-inset, 0);
+}
+
+.droplet[data-anchor='top-right'] {
+  top: var(--droplet-inset, 0);
+  right: var(--droplet-inset, 0);
+}
+
+.droplet[data-anchor='bottom-left'] {
+  bottom: var(--droplet-inset, 0);
+  left: var(--droplet-inset, 0);
+}
+
+.droplet[data-anchor='bottom-right'] {
+  right: var(--droplet-inset, 0);
+  bottom: var(--droplet-inset, 0);
+}
+
+/* 深色填充只在最后一段出现：前半程保持画布色，和主窗口淡出时
+   的底色一致；末端才变成悬浮球的石墨色。 */
+.droplet::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--gray-12);
+  opacity: var(--droplet-fill, 0);
+}
+
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes overlayOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}

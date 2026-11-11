@@ -7,6 +7,7 @@ import { useCallsStore } from '@/features/calls/callsStore';
 import { useAppShortcuts } from '@/features/desktop/useAppShortcuts';
 import { useDesktopBridge } from '@/features/desktop/useDesktopBridge';
 import { useGlobalHotkey } from '@/features/desktop/useGlobalHotkey';
+import WindowTransition from '@/features/desktop/WindowTransition';
 import { useNotesStore } from '@/features/history/notesStore';
 import { useRecordingActions } from '@/features/recorder/useRecordingSession';
 import { useSettingsStore } from '@/features/settings/settingsStore';
@@ -51,6 +52,10 @@ export default function App() {
     void useCallsStore.getState().hydrate();
   }, []);
 
-  if (mode === 'bubble') return <BubbleRoute />;
-  return <RouterProvider router={router} />;
+  return (
+    <>
+      {mode === 'bubble' ? <BubbleRoute /> : <RouterProvider router={router} />}
+      <WindowTransition />
+    </>
+  );
 }

@@ -24,6 +24,28 @@ import { Controller } from '../../bindings/github.com/huangypx/shiyu/desktop';
 // 一次模型调用：产出的文本，以及这次调用本身的记录。
 export type CallOutcome = { text: string; call?: CallRecord };
 
+// 窗口切换事件里的逻辑像素矩形。字段与 Go 侧的 windowBounds
+// 保持一致，前端只用 width/height 推导水滴进度。
+export type WindowBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type WindowTransitionAnchor =
+  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+export type WindowTransitionPayload = {
+  direction: 'shrink' | 'expand';
+  // 收起是逐帧动画时长；展开是等悬浮球淡出的时长。
+  durationMs: number;
+  // 收起时水滴贴住主窗口的哪个角；展开不使用锚点。
+  anchor: WindowTransitionAnchor;
+  from: WindowBounds;
+  to: WindowBounds;
+};
+
 type AudioRequest = {
   data: string;
   filename?: string;
@@ -191,6 +213,12 @@ export function subscribeAsrPartial(callback: (text: string) => void) {
 // 转写」是否可用。
 export function setTranscribing(active: boolean) {
   return desktopOnly(() => Controller.SetTranscribing(active));
+}
+
+// setReduceMotion 把系统的「减少动态效果」同步给原生窗口动画。
+// 原生窗口的 setFrame 读不到 CSS 媒体查询，只能由前端告诉 Go。
+export function setReduceMotion(enabled: boolean) {
+  return desktopOnly(() => Controller.SetReduceMotion(enabled));
 }
 
 // subscribeDesktopCancelTranscription 接收浮动球右键菜单的取消动作。
@@ -584,6 +612,69 @@ export function subscribeDesktopState(callback: (state: DesktopState) => void) {
   return Events.On('desktop:state', (event) => {
     const data: unknown = event.data;
     if (data && typeof data === 'object') callback(data as DesktopState);
+  });
+}
+
+function isWindowBounds(value: unknown): value is WindowBounds {
+  if (!value || typeof value !== 'object') return false;
+  const bounds = value as Record<string, unknown>;
+  return (
+    typeof bounds.x === 'number' &&
+    Number.isFinite(bounds.x) &&
+    typeof bounds.y === 'number' &&
+    Number.isFinite(bounds.y) &&
+    typeof bounds.width === 'number' &&
+    Number.isFinite(bounds.width) &&
+    bounds.width > 0 &&
+    typeof bounds.height === 'number' &&
+    Number.isFinite(bounds.height) &&
+    bounds.height > 0
+  );
+}
+
+function parseDesktopTransition(data: unknown): WindowTransitionPayload | null {
+  if (!data || typeof data !== 'object') return null;
+  const payload = data as Record<string, unknown>;
+  const direction = payload.direction;
+  if (direction !== 'shrink' && direction !== 'expand') return null;
+  if (
+    typeof payload.durationMs !== 'number' ||
+    !Number.isFinite(payload.durationMs) ||
+    payload.durationMs < 0
+  ) {
+    return null;
+  }
+  const anchor = payload.anchor;
+  if (
+    anchor !== 'top-left' &&
+    anchor !== 'top-right' &&
+    anchor !== 'bottom-left' &&
+    anchor !== 'bottom-right'
+  ) {
+    return null;
+  }
+  if (!isWindowBounds(payload.from) || !isWindowBounds(payload.to)) {
+    return null;
+  }
+  return {
+    direction,
+    durationMs: payload.durationMs,
+    anchor,
+    from: payload.from,
+    to: payload.to,
+  };
+}
+
+// 原生窗口开始切换前发出。收起时载荷描述两端矩形和时长，
+// 逐帧进度由前端读窗口实际宽度计算；展开只用 durationMs 等
+// 悬浮球淡出，几何字段不参与绘制。
+export function subscribeDesktopTransition(
+  callback: (transition: WindowTransitionPayload) => void,
+) {
+  if (!isDesktop()) return () => undefined;
+  return Events.On('desktop:transition', (event) => {
+    const transition = parseDesktopTransition(event.data);
+    if (transition) callback(transition);
   });
 }
 

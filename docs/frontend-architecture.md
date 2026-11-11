@@ -57,6 +57,9 @@ src/
 | `features/settings/settingsStore` | 模型池、整理预设与桌面设置，负责 `hydrate` / `selectPreset` / `selectModel` / `save` |
 | `features/history/notesStore` | 历史记录，读写 Go 的 SQLite；浏览器预览回落到 localStorage |
 | `features/calls/callsStore` | 调用日志，来自 Go 的会话内存 |
+| `features/desktop/windowTransitionStore` | 一次主窗口↔悬浮球过渡的方向、时长、锚点和起止 frame；不持久化 |
+
+窗口切换是唯一不进全局 store 的桌面动画状态：`windowTransitionStore` 只共享一次 transition，供 `AppShell`、`BubbleWindow` 和 `WindowTransition` 同时读取。收起时 `WindowTransition` 用当前 `innerWidth` 和锚点逐帧算水滴几何；展开不画水滴，只等悬浮球淡出、原生窗口落回 Go 记住的 frame 后，铺一层画布遮罩并让主界面在 200ms 内淡入。动画的起止 frame 与时长由 Go 的 `desktop:transition` 事件给出，前端不猜原生窗口的边界。
 
 约定：
 

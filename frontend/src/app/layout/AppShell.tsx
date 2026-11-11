@@ -5,6 +5,7 @@ import AppSidebar from '@/app/layout/Sidebar';
 import TopBar from '@/app/layout/TopBar';
 import { useFeedback } from '@/app/useFeedback';
 import Toast from '@/components/ui/Toast';
+import { useWindowTransitionStore } from '@/features/desktop/windowTransitionStore';
 import SettingsDialog from '@/features/settings/SettingsDialog';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import { useDesktopStore } from '@/store/desktopStore';
@@ -20,6 +21,10 @@ export default function AppShell() {
   const closeSettings = useUiStore((state) => state.closeSettings);
   const appearance = useUiStore((state) => state.appearance);
   const setAppearance = useUiStore((state) => state.setAppearance);
+  const transition = useWindowTransitionStore((state) => state.transition);
+  const leaving = transition?.direction === 'shrink';
+  const entering =
+    transition?.direction === 'expand' && transition.phase === 'settling';
 
   const models = useSettingsStore((state) => state.models);
   const desktop = useSettingsStore((state) => state.desktop);
@@ -42,7 +47,11 @@ export default function AppShell() {
   }, [closeSettings, feedback, saveSettings]);
 
   return (
-    <div className={styles.shell}>
+    <div
+      className={styles.shell}
+      data-leaving={leaving ? 'true' : undefined}
+      data-entering={entering ? 'true' : undefined}
+    >
       {/* 窗口标题只有一条 36px 顶带：侧栏头部与 TopBar 并排拼成它，
           Windows/Linux 的窗口按钮落在 TopBar 右端。 */}
       <div className={styles.body}>

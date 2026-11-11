@@ -95,6 +95,14 @@ export function SetMode(mode: string): $CancellablePromise<void> {
 }
 
 /**
+ * SetReduceMotion 由前端把 prefers-reduced-motion 同步过来。原生
+ * 窗口动画读不到 CSS 媒体查询，只能由宿主代为关掉。
+ */
+export function SetReduceMotion(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(529343266, enabled);
+}
+
+/**
  * SetTranscribing 让菜单项在「没有进行中的录音」时置灰。原生菜单
  * 每次弹出前都会按当前状态重建，因此这里改完下次弹出即可见。
  */
