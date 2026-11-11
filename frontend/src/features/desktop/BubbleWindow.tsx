@@ -1,5 +1,5 @@
 import { LoaderCircle, Mic, Square } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { useMicLevelVar } from '@/features/recorder/useMicLevel';
 import { saveBubblePosition } from '@/services/bridge';
@@ -29,6 +29,14 @@ const CLICK_MAX_DURATION = 400;
 // 必须覆盖系统双击窗口；默认约 500ms，太短会漏掉慢一点的双击。
 const DRAG_REARM_DELAY = 500;
 
+// 右键到原生菜单真正进入跟踪之间还有几毫秒空档，这段时间里
+// 页面仍可能收到菜单打开前的移动事件；太早解除守卫等于没关。
+const MENU_HOLD_SETTLE = 120;
+
+// 拖拽区被临时关掉的原因：tap 只覆盖双击保护的那 500ms；
+// menu 要等原生菜单关闭、左键确认抬起后才恢复。
+type DragHold = 'tap' | 'menu';
+
 export default function BubbleWindow({
   isArming,
   isRecording,
@@ -48,6 +56,10 @@ export default function BubbleWindow({
   } | null>(null);
   const positionPoller = useRef<number | null>(null);
   const pollGuard = useRef<number | null>(null);
+  // 与 rearmTimer 共用同一个 CSS 变量，必须记录当前是谁关掉的。
+  const dragHold = useRef<DragHold | null>(null);
+  // 右键发生的时刻，用于跳过菜单打开前的那段空档。
+  const menuHoldAt = useRef(0);
   // 音量写在外壳上：球体和音晕都读同一个变量，音晕又不受
   // 球体缩放影响，放大后仍能完整落在 92x92 的窗口里。
   const shellRef = useRef<HTMLElement>(null);
@@ -90,26 +102,98 @@ export default function BubbleWindow({
 
   // 只改 shell 上的内联变量：按钮和图标都继承它，拖拽区仍
   // 由第一下 mousedown 时的 drag 值启动。
-  const setDragDisabled = (disabled: boolean) => {
+  const setDragDisabled = useCallback((disabled: boolean) => {
     shellRef.current?.style.setProperty(
       '--wails-draggable',
       disabled ? 'no-drag' : 'drag',
     );
-  };
+  }, []);
 
-  const disarmDrag = () => {
-    setDragDisabled(true);
-    if (rearmTimer.current !== null) window.clearTimeout(rearmTimer.current);
-    rearmTimer.current = window.setTimeout(() => {
-      rearmTimer.current = null;
+  const releaseDrag = useCallback(
+    (hold: DragHold) => {
+      // 只有持有者自己能恢复拖拽区：轻点的 500ms 兜底计时不能把
+      // 仍在进行中的菜单会话提前打开。
+      if (dragHold.current !== hold) return;
+      dragHold.current = null;
+      if (rearmTimer.current !== null) {
+        window.clearTimeout(rearmTimer.current);
+        rearmTimer.current = null;
+      }
       setDragDisabled(false);
-    }, DRAG_REARM_DELAY);
+    },
+    [setDragDisabled],
+  );
+
+  const holdDrag = useCallback(
+    (hold: DragHold) => {
+      // 新的保持状态接管前先清掉旧计时器，否则轻点留下的兜底
+      // 会在菜单还开着的时候把拖拽区打开。
+      if (rearmTimer.current !== null) {
+        window.clearTimeout(rearmTimer.current);
+        rearmTimer.current = null;
+      }
+      dragHold.current = hold;
+      if (hold === 'menu') menuHoldAt.current = Date.now();
+      setDragDisabled(true);
+      if (hold !== 'tap') return;
+      rearmTimer.current = window.setTimeout(() => {
+        rearmTimer.current = null;
+        releaseDrag('tap');
+      }, DRAG_REARM_DELAY);
+    },
+    [releaseDrag, setDragDisabled],
+  );
+
+  // 菜单弹出期间页面收不到鼠标事件；关闭菜单的那一下又可能只以
+  // mouseup/mousemove 到达。Wails 的拖拽区只看 DOM 里的 buttons，
+  // 会把这种「看不到按下、只看得到移动」的事件合成一次拖拽，并用
+  // 上一次 NSMouseDown 的锚点把窗口拽到指针处。因此在出现一次能
+  // 证明左键已经抬起的鼠标事件之前，一直保持 no-drag。
+  useEffect(() => {
+    const settleMenuHold = (event: MouseEvent) => {
+      if (dragHold.current !== 'menu') return;
+      if (event.type === 'mousedown') return;
+      if (event.type === 'mouseup') {
+        if (event.button === 0) releaseDrag('menu');
+        return;
+      }
+      // 没有左键按下的移动说明这次按压已经结束；但要等过菜单
+      // 打开前的空档，别把右键瞬间的移动误当成菜单已关闭。
+      if (
+        (event.buttons & 1) === 0 &&
+        Date.now() - menuHoldAt.current >= MENU_HOLD_SETTLE
+      ) {
+        releaseDrag('menu');
+      }
+    };
+    // 点其他应用关闭菜单时页面收不到任何事件；失焦说明菜单已经
+    // 关闭，而且那一下按压不可能还留在本窗口里。
+    const releaseOnBlur = () => releaseDrag('menu');
+
+    window.addEventListener('mousedown', settleMenuHold, true);
+    window.addEventListener('mousemove', settleMenuHold, true);
+    window.addEventListener('mouseup', settleMenuHold, true);
+    window.addEventListener('blur', releaseOnBlur);
+    return () => {
+      window.removeEventListener('mousedown', settleMenuHold, true);
+      window.removeEventListener('mousemove', settleMenuHold, true);
+      window.removeEventListener('mouseup', settleMenuHold, true);
+      window.removeEventListener('blur', releaseOnBlur);
+    };
+  }, [releaseDrag]);
+
+  // 原生菜单的跟踪循环会吞掉关闭菜单那一下的按下/抬起配对，
+  // 这里先一步把拖拽区关掉，避免 Wails 从残留事件合成拖拽。
+  const handleContextMenu = () => {
+    holdDrag('menu');
   };
 
   const handleTap = () => {
+    // 菜单会话里到达的点击只是用来关闭菜单，不能当成录音开关。
+    if (dragHold.current === 'menu') return;
     // 第一下轻点后立刻关掉拖拽区：第二下 mousedown/dblclick
     // 落到 no-drag 上，Wails 不会再调用原生标题栏双击。
-    disarmDrag();
+    holdDrag('tap');
     const now = Date.now();
     if (now - lastClickAt.current < CLICK_DELAY) {
       lastClickAt.current = 0;
@@ -131,6 +215,9 @@ export default function BubbleWindow({
   // 因此改用 mouseup 判断轻点，有位移的按压视为拖拽结束。
   const handleMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
+    // 关闭菜单的那一次按压不参与轮询，也不能在 mouseup 时
+    // 被当成轻点去切换录音。
+    if (dragHold.current === 'menu') return;
     press.current = {
       startedAt: Date.now(),
       x: event.screenX,
@@ -188,6 +275,8 @@ export default function BubbleWindow({
       data-state={state}
       data-leaving={leaving ? 'true' : undefined}
       aria-label="拾语浮动录音按钮"
+      // 右键时先关掉拖拽区，菜单关闭后再由鼠标状态恢复。
+      onContextMenu={handleContextMenu}
       // 放在外壳上让圆圈的透明边缘和 SVG 图标也能继承；
       // 右键菜单仍由 Wails v3 的原生 ContextMenu 绘制。
       style={{ '--custom-contextmenu': 'bubble-menu' } as React.CSSProperties}

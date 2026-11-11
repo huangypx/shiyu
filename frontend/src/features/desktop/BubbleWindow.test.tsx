@@ -152,4 +152,91 @@ describe('BubbleWindow', () => {
       'drag',
     );
   });
+
+  it('右键菜单关闭前的残留按压不会启动原生拖拽', () => {
+    renderBubble();
+    fireEvent.contextMenu(bubbleButton());
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    // 菜单跟踪会吞掉关闭菜单时的 mousedown，页面只剩带左键状态的
+    // mousemove；Wails 会把它合成一次拖拽。
+    fireEvent.mouseDown(bubbleButton(), {
+      button: 0,
+      buttons: 1,
+      screenX: 100,
+      screenY: 100,
+    });
+    fireEvent.mouseMove(bubbleButton(), {
+      buttons: 1,
+      screenX: 130,
+      screenY: 110,
+    });
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    fireEvent.mouseUp(bubbleButton(), {
+      button: 0,
+      buttons: 0,
+      screenX: 130,
+      screenY: 110,
+    });
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'drag',
+    );
+  });
+
+  it('菜单关闭后没有按键的移动会恢复拖拽区', () => {
+    vi.useFakeTimers();
+    renderBubble();
+    fireEvent.contextMenu(bubbleButton());
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    // 右键到菜单真正打开之间的移动不能解除守卫。
+    fireEvent.mouseMove(window, { buttons: 0 });
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    void act(() => vi.advanceTimersByTime(120));
+    fireEvent.mouseMove(window, { buttons: 0 });
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'drag',
+    );
+  });
+
+  it('点击其他应用关闭菜单时，失焦会恢复拖拽区', () => {
+    renderBubble();
+    fireEvent.contextMenu(bubbleButton());
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    fireEvent(window, new Event('blur'));
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'drag',
+    );
+  });
+
+  it('关闭菜单的点击不会开始录音，恢复后单击照常生效', () => {
+    vi.useFakeTimers();
+    const { props } = renderBubble();
+    fireEvent.contextMenu(bubbleButton());
+
+    clickBubble();
+    // 关闭菜单的 mouseup 会恢复拖拽区，但这次按压本身被忽略。
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'drag',
+    );
+    void act(() => vi.advanceTimersByTime(300));
+    expect(props.onToggle).not.toHaveBeenCalled();
+
+    clickBubble();
+    void act(() => vi.advanceTimersByTime(300));
+    expect(props.onToggle).toHaveBeenCalledTimes(1);
+  });
 });

@@ -51,6 +51,8 @@ stateDiagram-v2
 
 右键菜单是 Wails v3 的原生 context menu：`desktop/menu.go` 把菜单注册到 `app.ContextMenu`，圆圈的按钮元素通过 CSS 自定义属性 `--custom-contextmenu: bubble-menu` 绑定它。菜单在鼠标指针处弹出，由系统处理屏幕边缘翻转、Esc 和点击外部关闭。窗口始终保持 92×92，不再为菜单放大，也没有自绘菜单的几何计算。
 
+菜单会话期间拖拽区会临时切到 `--wails-draggable: no-drag`。macOS 的原生菜单跟踪会吞掉关闭菜单那一下的按下/抬起配对，菜单关闭后页面可能只收到带着左键状态的移动事件；Wails 的原生拖拽会把这种「看不到按下、只看得到移动」的事件合成一次拖拽，并用上一次 `NSMouseDown` 作为锚点，窗口就会被挪到指针处。组件从 `contextmenu` 起保持 `no-drag`，直到出现一次能证明左键已经抬起的鼠标事件（或窗口失焦）；关闭菜单的那一下点击也不会被当成录音开关。
+
 拖动使用 Wails 的原生拖拽区（`--wails-draggable: drag`）：指针移出 92×92 的窗口后仍由系统拖拽循环跟踪，快速拖动不会丢事件；早期用 JS 位移驱动窗口的方案在快速拖动时会让光标跑出窗口，事件随即中断。代价是拖拽区会吞掉 `click`，所以点击改由 `mouseup` 判定：按下到抬起短于 400ms 且位移小于 4px 才算点击，位移更大则视为一次拖拽结束并保存位置。
 
 macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WKWebView` 加了 `acceptsFirstMouse:` 覆盖。否则应用不在前台时，第一次点击只会用来激活窗口，事件根本到不了网页，悬浮球会表现为「点不动、也拖不动」。
