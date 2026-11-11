@@ -1,0 +1,48 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* 画布只属于主窗口：浮动模式没有 AppShell，因此整页透明，
+     圆形按钮后面不会出现方形底色。 */
+  background: var(--app-canvas);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--app-surface);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.scrim {
+  display: none;
+}
+
+@media (max-width: 680px) {
+  .scrim {
+    position: fixed;
+    z-index: 4;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    background: var(--black-a6);
+  }
+}

@@ -1,0 +1,82 @@
+# Feel free to remove those if you don't want/need to use them.
+# Make sure to check the documentation at https://nfpm.goreleaser.com
+#
+# The lines below are called `modelines`. See `:help modeline`
+
+name: "shiyu"
+arch: ${GOARCH}
+platform: "linux"
+version: "0.1.0"
+section: "default"
+priority: "extra"
+maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
+description: "拾语 · 桌面语音输入与文字整理工具"
+vendor: "Shiyu"
+homepage: "https://github.com/huangypx/shiyu"
+license: "MIT"
+release: "1"
+
+contents:
+  - src: "./bin/shiyu"
+    dst: "/usr/local/bin/shiyu"
+  - src: "./build/appicon.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/shiyu.png"
+  - src: "./build/linux/shiyu.desktop"
+    dst: "/usr/share/applications/shiyu.desktop"
+
+# Wails v3.1 的 Linux 后端仍使用 GTK3 + WebKitGTK 4.1
+# （4.0 仅用于更老的发行版；Makefile 会在检测到 4.1 时启用
+# webkit2_41）。这里的依赖按主流的 4.1 发行版填写。
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0
+
+# Distribution-specific overrides for different package formats
+overrides:
+  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  rpm:
+    depends:
+      - gtk3
+      - webkit2gtk4.1
+
+  # Arch Linux packages
+  archlinux:
+    depends:
+      - gtk3
+      - webkit2gtk-4.1
+
+# scripts section to ensure desktop database is updated after install
+scripts:
+  postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
+  # You can also add preremove, postremove if needed
+  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
+  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
+
+# If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
+# replace the depends/overrides above with these:
+#
+# depends:
+#   - libgtk-3-0
+#   - libwebkit2gtk-4.1-0
+# overrides:
+#   rpm:
+#     depends:
+#       - gtk3
+#       - webkit2gtk4.1
+#   archlinux:
+#     depends:
+#       - gtk3
+#       - webkit2gtk-4.1
+#
+# replaces:
+#   - foobar
+# provides:
+#   - bar
+# recommends:
+#   - whatever
+# suggests:
+#   - something-else
+# conflicts:
+#   - not-foo
+#   - not-bar
+# changelog: "changelog.yaml"

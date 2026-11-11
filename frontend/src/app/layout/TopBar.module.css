@@ -1,0 +1,52 @@
+.topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface);
+  /* 顶栏其余部分是原生拖拽手柄。 */
+  --wails-draggable: drag;
+}
+
+.topbar button,
+.topbar a {
+  --wails-draggable: no-drag;
+}
+
+.menu {
+  display: none;
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-ink-faint);
+  font-size: 12px;
+}
+
+.crumb strong {
+  color: var(--app-ink);
+  font-weight: 500;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+@media (max-width: 680px) {
+  .topbar {
+    height: 48px;
+    padding: 0 10px;
+  }
+
+  .menu {
+    display: grid;
+  }
+}

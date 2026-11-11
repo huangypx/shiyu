@@ -1,0 +1,48 @@
+frontend/node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/*.tsbuildinfo
+frontend/coverage/
+frontend/*.md5
+# 本地模块缓存、脚手架和构建中间产物；不要提交。
+.tmp/
+.task/
+.bin/
+# Wails v3 构建产物。构建配置、图标和 Info.plist 必须跟踪，
+# 否则新克隆的仓库无法直接打包。
+build/*
+!build/config.yml
+!build/Taskfile.yml
+!build/appicon.png
+!build/darwin/
+build/darwin/*
+!build/darwin/Taskfile.yml
+!build/darwin/Info.plist
+!build/darwin/Info.dev.plist
+!build/darwin/icons.icns
+!build/darwin/dmg-background.png
+!build/darwin/dmg-file-icon.icns
+!build/windows/
+build/windows/*
+!build/windows/Taskfile.yml
+!build/windows/icon.ico
+!build/windows/info.json
+!build/windows/wails.exe.manifest
+!build/windows/msix/
+!build/windows/msix/**
+!build/windows/nsis/
+!build/windows/nsis/**
+!build/linux/
+build/linux/*
+!build/linux/Taskfile.yml
+!build/linux/appimage/
+!build/linux/appimage/**
+!build/linux/nfpm/
+!build/linux/nfpm/**
+# 平台打包脚本生成的中间文件。
+build/linux/appimage/build/
+build/linux/*.desktop
+build/windows/nsis/*.exe
+bin/
+*.log
+.DS_Store

@@ -1,0 +1,82 @@
+/* 全局只保留真正全局的东西：盒模型、根元素尺寸、
+   平台窗口层变量和透明画布的取舍。组件样式一律放在
+   各自的 .module.css 里。 */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color-scheme: light dark;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text',
+    'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Noto Sans SC', sans-serif;
+  /* 画布由主窗口的 AppShell 绘制，body 保持透明；
+     浮动模式没有外壳，因此整页天然透明。 */
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 主题容器只负责继承颜色和高度，不画背景：
+   浮动模式需要整页透明，画布由主窗口 AppShell 负责。 */
+.app-theme {
+  height: 100%;
+  color: var(--app-ink);
+}
+
+/* 键盘焦点只在真正需要时显示，鼠标点击不画环。 */
+:focus-visible {
+  outline: 2px solid var(--focus-8);
+  outline-offset: 2px;
+}
+
+/* 加载指示器在多个组件里用同一个类名。 */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 原生窗口层高度：macOS 只留出交通灯的位置，
+   Windows/Linux 使用 32px 自绘 caption。 */
+:root {
+  --window-chrome-height: 0px;
+}
+
+:root[data-platform='darwin'] {
+  --window-chrome-height: 28px;
+}
+
+:root[data-platform='windows'],
+:root[data-platform='linux'] {
+  --window-chrome-height: 32px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

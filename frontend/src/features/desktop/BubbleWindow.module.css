@@ -1,0 +1,160 @@
+/* 浮动窗口是 92x92 的透明方形：圆形按钮是唯一可见元素，
+   同时充当窗口拖拽手柄。右键菜单由 Wails v3 的原生菜单绘制，
+   窗口尺寸不再变化。 */
+.shell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  overflow: visible;
+  background: transparent;
+  /* 音量写在外壳上：球体与音晕共用一个 --mic-level，
+     两者各自读取，互不叠加缩放。 */
+  --mic-level: 0;
+  /* 原生窗口拖拽：指针离开这个 92x92 窗口后，系统拖拽循环
+     仍在跟踪。代价是拖拽区会吞掉 click，组件改用 mouseup 判断轻点。 */
+  --wails-draggable: drag;
+}
+
+.button {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 6px solid rgba(255, 255, 255, 0.94);
+  border-radius: 50%;
+  background: var(--gray-12);
+  color: var(--gray-1);
+  cursor: grab;
+  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
+  /* 90ms 的插值把 23Hz 的采样接成连续动画；72px 的球最多
+     放大到约 81px，加上 6px 边框仍在 92px 的窗口内。 */
+  transition:
+    transform 90ms ease-out,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.button:hover {
+  box-shadow: 0 8px 20px rgba(15, 15, 17, 0.32);
+  filter: brightness(1.08);
+}
+
+.button:active {
+  cursor: grabbing;
+  filter: brightness(0.94);
+}
+
+.recording {
+  background: var(--red-9);
+  color: #fff;
+  transform: scale(calc(1 + var(--mic-level) * 0.14));
+}
+
+/* 音量环是按钮的兄弟节点：它按音量加深并轻微外扩，不叠加按钮
+   自身的缩放。92px 的窗口放不下更大的装饰，所以主要靠对比度
+   表达音量，而不是无限放大或发光。 */
+.levelHalo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 86px;
+  height: 86px;
+  margin: -43px 0 0 -43px;
+  border: 2px solid var(--red-a8);
+  border-radius: 50%;
+  opacity: calc(0.14 + var(--mic-level) * 0.8);
+  transform: scale(calc(0.96 + var(--mic-level) * 0.06));
+  transition:
+    transform 120ms ease-out,
+    opacity 120ms ease-out;
+  pointer-events: none;
+}
+
+.arming {
+  /* 呼吸环同样由兄弟节点绘制，按钮本身保持原尺寸。 */
+  cursor: progress;
+}
+
+.armingRing {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 84px;
+  height: 84px;
+  margin: -42px 0 0 -42px;
+  border: 2px solid var(--gray-11);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: armingPulse 1.4s ease-out infinite;
+}
+
+.processing {
+  cursor: progress;
+}
+
+.flashSuccess {
+  animation: flashSuccess 1.1s ease-out;
+}
+
+.flashError {
+  animation: flashError 1.4s ease-out;
+}
+
+/* 呼吸环始终留有一部分不透明度：截图、开会分屏或用户只是
+   扫一眼的时候，也要能看出「麦克风还在准备」。 */
+@keyframes armingPulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0.25;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+@keyframes flashSuccess {
+  0% {
+    box-shadow:
+      0 0 0 0 var(--jade-a6),
+      0 6px 16px rgba(15, 15, 17, 0.28);
+  }
+  60% {
+    box-shadow:
+      0 0 0 14px transparent,
+      0 6px 16px rgba(15, 15, 17, 0.28);
+  }
+}
+
+@keyframes flashError {
+  0% {
+    box-shadow:
+      0 0 0 0 var(--red-a6),
+      0 6px 16px rgba(15, 15, 17, 0.28);
+  }
+  60% {
+    box-shadow:
+      0 0 0 14px transparent,
+      0 6px 16px rgba(15, 15, 17, 0.28);
+  }
+}
+
+/* 减少动态效果时球体不再随音量缩放，音量只由音晕的
+   透明度与半径表达，状态仍然分得清。 */
+@media (prefers-reduced-motion: reduce) {
+  .recording {
+    transform: none;
+  }
+
+  .levelHalo {
+    transform: none;
+  }
+}

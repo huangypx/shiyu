@@ -1,0 +1,127 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: var(--app-sidebar-width);
+  height: 100%;
+  min-height: 0;
+  padding: 14px 12px;
+  border-right: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 有系统材质时侧栏半透明，内容区仍然不透明。 */
+:global(:root[data-backdrop='glass']) .sidebar,
+:global(:root[data-backdrop='vibrancy']) .sidebar,
+:global(:root[data-backdrop='mica']) .sidebar {
+  background: color-mix(in srgb, var(--app-surface-subtle) 72%, transparent);
+  backdrop-filter: saturate(180%) blur(24px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  color: var(--app-ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-ink);
+  color: var(--app-surface);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.brandTag {
+  padding: 1px 4px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-xs);
+  color: var(--app-ink-faint);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+.newNote {
+  width: 100%;
+  margin: 18px 0 12px;
+  justify-content: flex-start;
+}
+
+.shortcut {
+  margin-left: auto;
+  color: var(--app-ink-faint);
+  font-size: 11px;
+}
+
+.nav {
+  display: grid;
+  gap: 2px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--app-radius-md);
+  background: none;
+  cursor: pointer;
+  color: var(--app-ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.navItem:hover {
+  background: var(--app-surface-hover);
+  color: var(--app-ink);
+}
+
+.navItem[aria-current='page'] {
+  background: var(--app-surface-active);
+  color: var(--app-ink);
+}
+
+.navCount {
+  margin-left: auto;
+  color: var(--app-ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bottom {
+  display: grid;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--app-border);
+}
+
+@media (max-width: 680px) {
+  .sidebar {
+    position: fixed;
+    z-index: 5;
+    inset: 0 auto 0 0;
+    display: none;
+    width: min(var(--app-sidebar-width), 86vw);
+    box-shadow: var(--shadow-4);
+  }
+
+  .open {
+    display: flex;
+  }
+}

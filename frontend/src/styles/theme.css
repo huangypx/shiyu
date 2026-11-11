@@ -1,0 +1,62 @@
+/* 设计 token：颜色全部来自 Radix Themes 的色阶。
+   必须定义在 .radix-themes 上——Radix 的 --gray-* / --accent-*
+   只在主题容器里存在，写进 :root 会在计算时失效。 */
+
+:where(.radix-themes) {
+  /* 表面 */
+  --app-canvas: var(--gray-2);
+  --app-surface: var(--color-panel-solid);
+  --app-surface-subtle: var(--gray-2);
+  --app-surface-hover: var(--gray-a3);
+  --app-surface-active: var(--gray-a4);
+
+  /* 内容 */
+  --app-ink: var(--gray-12);
+  --app-ink-soft: var(--gray-11);
+  --app-ink-faint: var(--gray-9);
+  --app-border: var(--gray-a5);
+  --app-border-strong: var(--gray-a7);
+
+  /* 强调：靛蓝只出现在焦点、链接与选中态 */
+  --app-accent: var(--indigo-9);
+  --app-accent-strong: var(--indigo-11);
+  --app-accent-soft: var(--indigo-a3);
+
+  /* 状态 */
+  --app-danger: var(--red-9);
+  --app-danger-soft: var(--red-a3);
+  --app-success: var(--jade-9);
+  --app-success-soft: var(--jade-a3);
+
+  /* 圆角：卡片比控件更圆，避免「方盒子堆叠」的硬边 */
+  --app-radius-xs: 5px;
+  --app-radius-sm: 7px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 14px;
+  --app-radius-pill: 999px;
+
+  /* 卡片只加一层几乎看不见的落影，用于和画布分离；
+     深色模式下 black-a2 自然趋近透明，不需要第二套规则。 */
+  --app-shadow-card: 0 1px 2px var(--black-a2);
+
+  /* 布局 */
+  --app-sidebar-width: 236px;
+  --app-content-max: 1040px;
+  --app-breakpoint-tablet: 900px;
+  --app-breakpoint-mobile: 680px;
+}
+
+/* Radix 控件的圆角会随 scaling 一起缩放，90% 下按钮只有 5.4px、
+   输入框 4.4px，和 14px 的卡片放在一起仍然生硬。这里统一提到
+   8px；弹窗、开关、徽标仍用 Radix 自己的形状。 */
+.radix-themes
+  :is(
+    .rt-Button,
+    .rt-IconButton,
+    .rt-BaseButton,
+    .rt-SelectTrigger,
+    .rt-TextFieldRoot,
+    .rt-TextFieldInput
+  ) {
+  border-radius: 8px;
+}

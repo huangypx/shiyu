@@ -1,0 +1,36 @@
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleName</key>
+        <string>拾语</string>
+        <key>CFBundleExecutable</key>
+        <string>shiyu</string>
+        <key>CFBundleIdentifier</key>
+        <string>com.shiyu.app</string>
+        <key>CFBundleVersion</key>
+        <string>0.1.0</string>
+        <key>CFBundleGetInfoString</key>
+        <string>拾语 · Shiyu</string>
+        <key>CFBundleShortVersionString</key>
+        <string>0.1.0</string>
+        <key>CFBundleIconFile</key>
+        <string>icons</string>
+        <key>LSMinimumSystemVersion</key>
+        <string>12.0.0</string>
+        <key>NSHighResolutionCapable</key>
+        <true/>
+        <key>NSMicrophoneUsageDescription</key>
+        <string>拾语需要麦克风来录制你的语音，并把它转写成文字。</string>
+        <key>NSAppleEventsUsageDescription</key>
+        <string>拾语需要控制 System Events 来把整理结果粘贴到当前应用。</string>
+        <key>NSHumanReadableCopyright</key>
+        <string>© 2026 Shiyu contributors</string>
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <key>NSAllowsLocalNetworking</key>
+            <true/>
+        </dict>
+    </dict>
+</plist>

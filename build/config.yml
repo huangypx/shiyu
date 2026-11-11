@@ -1,0 +1,50 @@
+# Wails v3 构建配置。`info` 只用于生成安装包元数据；
+# 应用窗口与版本行为仍由 Go 代码决定。
+#
+# 注意：wails3 update build-assets 会用模板重写
+# build/darwin/Info*.plist；本仓库手动维护了麦克风和 Apple Events
+# 权限说明，执行后必须补回。
+version: '3'
+
+info:
+  companyName: "Shiyu"
+  productName: "拾语"
+  productIdentifier: "com.shiyu.app"
+  description: "拾语 · 桌面语音输入与文字整理工具"
+  copyright: "© 2026 Shiyu contributors"
+  comments: "拾语 · Shiyu"
+  version: "0.1.0"
+
+# wails3 dev 的文件监听配置。frontend 由 Vite 自己监听，
+# 这里只重建 Go 二进制。
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+      - .tmp
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+      - "*.js"
+      - "*.ts"
+    git_ignore: true
+  executes:
+    # 走 Taskfile 的 dev:build，让 macOS 也带上 private_mac_apis；
+    # 直接写 wails3 build DEV=true 会得到不透明的 WKWebView。
+    - cmd: wails3 task dev:build
+      type: blocking
+    - cmd: wails3 task common:dev:frontend
+      type: background
+    - cmd: wails3 task run
+      type: primary
+      exit_policy: shutdown

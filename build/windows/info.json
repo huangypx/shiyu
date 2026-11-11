@@ -1,0 +1,17 @@
+{
+	"fixed": {
+		"file_version": "0.1.0",
+		"product_version": "0.1.0"
+	},
+	"info": {
+		"0409": {
+			"FileVersion": "0.1.0",
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Shiyu",
+			"FileDescription": "拾语 · 桌面语音输入与文字整理工具",
+			"LegalCopyright": "© 2026 Shiyu contributors",
+			"ProductName": "拾语",
+			"Comments": "拾语 · Shiyu"
+		}
+	}
+}
