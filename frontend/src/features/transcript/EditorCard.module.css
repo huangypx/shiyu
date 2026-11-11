@@ -1,19 +1,46 @@
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+.viewport {
+  /* 3D 翻转要在父级给出透视距离；min-height 沿用旧面板高度，
+     两面高度接近时下面的说明文字不会跟着跳。 */
+  perspective: 1500px;
+  min-height: 340px;
   margin-top: 16px;
 }
 
-.panel {
+/* 两面背对背放在同一格里：整张卡一起转 180°，
+   转到一半时才露出另一面。 */
+.flipper {
+  display: grid;
+  min-height: 340px;
+  transform-style: preserve-3d;
+}
+
+.face {
   display: flex;
   flex-direction: column;
+  grid-area: 1 / 1;
   min-height: 340px;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-lg);
   background: var(--app-surface);
   box-shadow: var(--app-shadow-card);
   overflow: hidden;
+  backface-visibility: hidden;
+}
+
+/* 背面预先倒转 180°，卡片转到 180° 时它才是正的。 */
+.faceBack {
+  transform: rotateY(180deg);
+}
+
+/* 减少动态效果时两面都朝前，只做淡入淡出。 */
+.faceFlat {
+  transform: none;
+}
+
+/* 藏起来的一面不接收点击；翻转途中它仍可见，所以不能用
+   visibility 或 display 收起来。 */
+.face[aria-hidden='true'] {
+  pointer-events: none;
 }
 
 .header {
@@ -94,64 +121,6 @@
   outline: none;
 }
 
-.markdown {
-  display: grid;
-  gap: 3px;
-  padding: 14px 16px;
-  color: var(--app-ink);
-  font-size: 13px;
-  line-height: 1.75;
-}
-
-.markdown h3 {
-  margin: 6px 0 2px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.markdown h4 {
-  margin: 6px 0 2px;
-  color: var(--app-ink-soft);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.markdown p {
-  margin: 0;
-}
-
-.checkLine {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.checkBox {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  margin-top: 5px;
-  border: 1px solid var(--app-border-strong);
-  border-radius: 3px;
-}
-
-.bulletLine {
-  display: flex;
-  gap: 8px;
-}
-
-.bulletLine span {
-  color: var(--app-ink-faint);
-}
-
-.metaLine {
-  color: var(--app-ink-soft);
-}
-
-.lineSpace {
-  height: 4px;
-}
-
 .empty {
   display: grid;
   place-items: center;
@@ -209,8 +178,14 @@
   margin-left: auto;
 }
 
-@media (max-width: 900px) {
-  .grid {
-    grid-template-columns: 1fr;
+@media (max-width: 680px) {
+  .viewport,
+  .flipper,
+  .face {
+    min-height: 300px;
+  }
+
+  .footerActions {
+    margin-left: 0;
   }
 }

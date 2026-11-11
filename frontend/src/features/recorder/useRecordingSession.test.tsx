@@ -123,6 +123,7 @@ describe('useRecordingSession', () => {
     });
     useSessionStore.setState({
       status: 'idle',
+      stage: null,
       transcript: '',
       organized: '',
       metrics: {},
@@ -330,6 +331,8 @@ describe('useRecordingSession', () => {
       await Promise.resolve();
     });
     expect(useSessionStore.getState().status).toBe('processing');
+    // 还在识别：界面据此说「正在识别」，而不是「正在整理」。
+    expect(useSessionStore.getState().stage).toBe('transcribe');
 
     const textarea = () => useSessionStore.getState().transcript;
     act(() => {
@@ -346,6 +349,41 @@ describe('useRecordingSession', () => {
       await Promise.resolve();
     });
     expect(textarea()).toBe('你好世界');
+  });
+
+  it('转写完成后进入整理阶段，回到空闲时清空阶段', async () => {
+    let settleOrganize: (value: { text: string }) => void = () => undefined;
+    bridge.transcribe.mockResolvedValue({ text: '记录一下' });
+    bridge.organize.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settleOrganize = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useRecordingActions());
+
+    await act(async () => {
+      await result.current.toggleRecording();
+    });
+    await act(async () => {
+      void result.current.toggleRecording();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 原文已经上屏，此刻等的是整理模型。
+    await vi.waitFor(() => {
+      expect(useSessionStore.getState().stage).toBe('organize');
+    });
+    expect(useSessionStore.getState().transcript).toBe('记录一下');
+
+    await act(async () => {
+      settleOrganize({ text: '## 整理结果' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(useSessionStore.getState().status).toBe('idle');
+    expect(useSessionStore.getState().stage).toBeNull();
   });
 
   it('录音中取消：丢弃音频，不转写不整理也不写历史', async () => {

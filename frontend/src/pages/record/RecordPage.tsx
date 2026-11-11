@@ -5,7 +5,7 @@ import {
   useProcessingTimer,
   useRecordingSession,
 } from '@/features/recorder/useRecordingSession';
-import EditorPanels from '@/features/transcript/EditorPanels';
+import EditorCard from '@/features/transcript/EditorCard';
 import { formatDate, getGreeting } from '@/lib/format';
 import { useUiStore } from '@/store/uiStore';
 
@@ -35,6 +35,7 @@ export default function RecordPage() {
         isArming={session.isArming}
         isRecording={session.isRecording}
         isProcessing={session.isProcessing}
+        stage={session.stage}
         elapsedMs={session.elapsedMs}
         language={session.language}
         onToggle={session.toggleRecording}
@@ -42,10 +43,12 @@ export default function RecordPage() {
         onSettings={openSettings}
       />
 
-      <EditorPanels
+      <EditorCard
+        status={session.status}
         transcript={session.transcript}
         organized={session.organized}
         isProcessing={session.isProcessing}
+        isOrganizing={session.isOrganizing}
         copied={session.copied}
         metrics={session.metrics}
         presets={session.presets}
@@ -55,7 +58,6 @@ export default function RecordPage() {
         onClear={session.clearDraft}
         onOrganize={session.runOrganize}
         onCopy={session.copyResult}
-        onResetResult={() => session.setOrganized('')}
       />
 
       <p className={styles.privacy}>

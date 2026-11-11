@@ -1,5 +1,5 @@
 import { Theme } from '@radix-ui/themes';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '@/store/sessionStore';
@@ -33,6 +33,7 @@ describe('RecordPage', () => {
   beforeEach(() => {
     useSessionStore.setState({
       status: 'idle',
+      stage: null,
       transcript: '',
       organized: '',
       metrics: {},
@@ -41,7 +42,7 @@ describe('RecordPage', () => {
     });
   });
 
-  it('渲染录音入口与两个编辑面板', () => {
+  it('渲染录音入口与记录卡的原始记录一面', () => {
     render(
       <Theme>
         <RecordPage />
@@ -52,8 +53,33 @@ describe('RecordPage', () => {
       screen.getByRole('heading', { name: '今天想记录什么？' }),
     ).toBeVisible();
     expect(screen.getByRole('button', { name: '开始录音' })).toBeVisible();
+    // 记录卡只有一面在 DOM 里：没有结果时不渲染整理结果。
     expect(screen.getByRole('region', { name: '原始记录' })).toBeVisible();
-    expect(screen.getByRole('region', { name: '整理结果' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: '整理结果' })).toBeNull();
+  });
+
+  it('整理结果落地后卡片翻到整理结果一面', async () => {
+    render(
+      <Theme>
+        <RecordPage />
+      </Theme>,
+    );
+
+    act(() => {
+      useSessionStore.setState({ transcript: '记一下明天的安排' });
+    });
+
+    act(() => {
+      useSessionStore.setState({ organized: '## 明天的安排\n- 十点开会' });
+    });
+
+    // 翻面先等退出动画结束才换面，新面还要淡入，断言要轮询。
+    await waitFor(
+      () =>
+        expect(screen.getByRole('region', { name: '整理结果' })).toBeVisible(),
+      { timeout: 3000 },
+    );
+    expect(screen.queryByRole('region', { name: '原始记录' })).toBeNull();
   });
 
   it('没有原始文本时整理按钮不可用', () => {
@@ -66,7 +92,7 @@ describe('RecordPage', () => {
     expect(screen.getByRole('button', { name: '整理文字' })).toBeDisabled();
   });
 
-  it('结果面板可以切换整理预设', () => {
+  it('记录卡上可以切换整理预设', () => {
     render(
       <Theme>
         <RecordPage />

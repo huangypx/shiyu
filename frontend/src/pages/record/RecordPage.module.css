@@ -1,5 +1,7 @@
 .workspace {
-  max-width: var(--app-content-max);
+  /* 记录页只有一列内容，1040px 会把文字拉得过长；
+     窄一档的阅读宽度见 theme.css 的 `--app-content-narrow`。 */
+  max-width: var(--app-content-narrow);
   margin: 0 auto;
   padding: 28px 32px 36px;
 }

@@ -3,6 +3,7 @@ import { LoaderCircle, Mic, RotateCcw, Settings, Square } from 'lucide-react';
 import { type CSSProperties, useRef } from 'react';
 
 import { useMicLevelVar } from '@/features/recorder/useMicLevel';
+import type { SessionStage } from '@/store/sessionStore';
 
 import styles from './RecordingCard.module.css';
 
@@ -11,6 +12,8 @@ type Props = {
   isArming: boolean;
   isRecording: boolean;
   isProcessing: boolean;
+  // 处理中的两段要说不同的话：识别与整理等待的是不同的东西。
+  stage: SessionStage;
   // 等待服务商的毫秒数，处理中显示：慢调用要看起来是慢，
   // 而不是看起来卡住。
   elapsedMs: number;
@@ -32,6 +35,7 @@ export default function RecordingCard({
   isArming,
   isRecording,
   isProcessing,
+  stage,
   elapsedMs,
   language,
   onToggle,
@@ -48,13 +52,16 @@ export default function RecordingCard({
       : isArming
         ? 'arming'
         : 'idle';
+  const organizing = isProcessing && stage === 'organize';
 
   return (
     <section className={styles.card} data-state={state} aria-live="polite">
       <div className={styles.copy}>
         <span className={styles.label}>
           {isProcessing
-            ? '整理中'
+            ? organizing
+              ? '整理中'
+              : '转写中'
             : isRecording
               ? '正在聆听'
               : isArming
@@ -63,7 +70,9 @@ export default function RecordingCard({
         </span>
         <strong>
           {isProcessing
-            ? '正在把你的语音变成文字'
+            ? organizing
+              ? '正在把原文整理得更清楚'
+              : '正在把你的语音变成文字'
             : isRecording
               ? '自由地说，不必斟酌措辞'
               : isArming
@@ -71,11 +80,15 @@ export default function RecordingCard({
                 : '点击下方按钮开始说话'}
         </strong>
         <small>
-          {isRecording
-            ? '再次点击结束录音'
-            : isArming
-              ? '正在申请麦克风权限，再点一次可以取消'
-              : '支持普通话、英语及更多语言'}
+          {isProcessing
+            ? organizing
+              ? '整理完成后会自动翻到整理结果'
+              : '识别结果会先显示在原始记录里'
+            : isRecording
+              ? '再次点击结束录音'
+              : isArming
+                ? '正在申请麦克风权限，再点一次可以取消'
+                : '支持普通话、英语及更多语言'}
         </small>
         {(isRecording || isProcessing) && (
           <Button

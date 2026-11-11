@@ -131,6 +131,9 @@ export function useRecordingActions() {
     async (blob?: Blob) => {
       const session = useSessionStore.getState();
       session.setStatus('processing');
+      // 先记下正在转写：界面据此说「正在识别」，
+      // 整理阶段再换成「正在整理」。
+      session.setStage('transcribe');
       session.setElapsedMs(0);
       const { token, controller } = beginProcessing();
       // 流式转写时文字边生成边上屏；载荷是累计文本，直接覆盖即可。
@@ -163,6 +166,9 @@ export function useRecordingActions() {
         const text = transcriptOutcome.text.trim();
         session.setMetrics({ asr: asrCall });
         session.setTranscript(text);
+        // 原文已经上屏，从这里开始等的是整理结果；
+        // 卡片翻转由 organized 落地触发，不在这里改视图。
+        session.setStage('organize');
         let result = text;
         let llmCall: CallRecord | undefined;
         try {
@@ -196,7 +202,10 @@ export function useRecordingActions() {
         void useCallsStore.getState().refresh();
         // 取消之后可能已经开始了新一次录音，晚到的收尾不能把
         // 那一次的状态改回 idle。
-        if (token === processingToken) session.setStatus('idle');
+        if (token === processingToken) {
+          session.setStatus('idle');
+          session.setStage(null);
+        }
       }
     },
     [
@@ -314,6 +323,7 @@ export function useRecordingActions() {
     const session = useSessionStore.getState();
     if (!session.transcript.trim() || session.status === 'processing') return;
     session.setStatus('processing');
+    session.setStage('organize');
     session.setElapsedMs(0);
     const { token, controller } = beginProcessing();
     try {
@@ -346,7 +356,10 @@ export function useRecordingActions() {
     } finally {
       endProcessing(token, controller);
       void useCallsStore.getState().refresh();
-      if (token === processingToken) session.setStatus('idle');
+      if (token === processingToken) {
+        session.setStatus('idle');
+        session.setStage(null);
+      }
     }
   }, [
     deliverResult,
@@ -436,6 +449,7 @@ export function useRecordingSession() {
     (state) => state.models.activePresetId,
   );
   const status = useSessionStore((state) => state.status);
+  const stage = useSessionStore((state) => state.stage);
   const transcript = useSessionStore((state) => state.transcript);
   const organized = useSessionStore((state) => state.organized);
   const metrics = useSessionStore((state) => state.metrics);
@@ -455,6 +469,10 @@ export function useRecordingSession() {
     isArming: status === 'arming',
     isRecording: status === 'recording',
     isProcessing: status === 'processing',
+    stage,
+    // 转写结束后原文已可见，剩下的等待都在整理模型上；
+    // 界面要靠这个区分「正在识别」与「正在整理」。
+    isOrganizing: status === 'processing' && stage === 'organize',
     transcript,
     organized,
     metrics,

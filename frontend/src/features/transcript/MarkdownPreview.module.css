@@ -1,0 +1,57 @@
+.markdown {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+  color: var(--app-ink);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.markdown h3 {
+  margin: 6px 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.markdown h4 {
+  margin: 6px 0 2px;
+  color: var(--app-ink-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.markdown p {
+  margin: 0;
+}
+
+.checkLine {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.checkBox {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 5px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 3px;
+}
+
+.bulletLine {
+  display: flex;
+  gap: 8px;
+}
+
+.bulletLine span {
+  color: var(--app-ink-faint);
+}
+
+.metaLine {
+  color: var(--app-ink-soft);
+}
+
+.lineSpace {
+  height: 4px;
+}
