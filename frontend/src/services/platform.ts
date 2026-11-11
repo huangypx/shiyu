@@ -1,7 +1,24 @@
 import type { Backdrop, Platform } from '@/types/models';
 
-// 浏览器预览没有 Wails 绑定；当成 "web" 处理可以
-// 让原生标题栏不出现在截图和普通 Vite 访问中。
+type HostBridge = {
+  _wails?: { environment?: { OS?: string } };
+};
+
+// hostPlatform 只认宿主注入的 window._wails.environment：Wails 在
+// documentStart 写入 {OS, Arch, Debug}。不能只看 window._wails 是否
+// 存在——前端的 @wailsio/runtime 在普通浏览器里也会创建这个对象
+// （事件派发、拖拽、invoke 转发），把它当桌面信号会让 Vite 预览
+// 也空出一块留给交通灯的位置。
+export function hostPlatform(): Platform | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const os = (window as Window & HostBridge)._wails?.environment?.OS;
+  if (!os) return undefined;
+  if (os === 'darwin') return 'darwin';
+  if (os === 'windows') return 'windows';
+  // linux/android/ios 都走无边框窗口，统一按 Linux 的 caption 处理。
+  return 'linux';
+}
+
 export function detectPlatform(): Platform {
   if (typeof window === 'undefined') return 'web';
   // 在普通浏览器里做视觉评审：?platform=windows 可以渲染
@@ -15,14 +32,7 @@ export function detectPlatform(): Platform {
   ) {
     return forced;
   }
-  // Wails v3 在页面注入 window._wails；普通 Vite 预览没有它。
-  if (!(window as Window & { _wails?: unknown })._wails) {
-    return 'web';
-  }
-  const ua = navigator.userAgent;
-  if (/Mac|iPhone|iPad|iPod/i.test(ua)) return 'darwin';
-  if (/Windows/i.test(ua)) return 'windows';
-  return 'linux';
+  return hostPlatform() ?? 'web';
 }
 
 // 在 GetState 返回前使用，首帧就已经为标题栏和
