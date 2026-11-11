@@ -183,7 +183,7 @@ desktop/
   hotkey.go       X11 xbindkeys 全局快捷键适配
   injector.go     Linux/macOS/Windows 粘贴按键适配
 frontend/bindings/  Wails v3 CLI 生成的 TypeScript 绑定（提交到仓库）
-build/              Wails v3 构建配置、图标和各平台打包资源
+build/              Wails v3 构建配置、图标和各平台打包资源（图标 SVG 源在 build/icons/）
 Taskfile.yml        Wails v3 构建任务入口
 frontend/
   src/app/        入口、路由表、应用外壳（侧栏/顶栏/窗口层）与外观主题

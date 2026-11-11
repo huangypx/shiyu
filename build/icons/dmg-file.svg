@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+DMG 文件图标（1024×1024）。
+
+分发出去的 .dmg 在 Finder 里显示的是文件，不是应用，因此这里用反相配色：
+白砖配石墨标记，和应用的石墨砖一眼能分清，几何则完全复用 app-icon.svg，
+保证「同一套标记」这件事在文件层也成立。
+文字线用 Radix indigo-9 的浅色档（白底上 5.2:1），深色档在浅底上会发灰。
+渲染与接线见 build/Taskfile.yml 的 generate:brand 与 generate:icons。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="拾语安装包">
+  <defs>
+    <clipPath id="shiyu-file-tile">
+      <rect x="100" y="100" width="824" height="824" rx="184" />
+    </clipPath>
+  </defs>
+
+  <!-- 白砖在浅色 Finder 背景上也要有边界，改用深色内描边 -->
+  <g clip-path="url(#shiyu-file-tile)">
+    <rect x="100" y="100" width="824" height="824" rx="184" fill="#FFFFFF" />
+    <rect
+      x="100"
+      y="100"
+      width="824"
+      height="824"
+      rx="184"
+      fill="none"
+      stroke="#000000"
+      stroke-opacity="0.08"
+      stroke-width="20"
+    />
+  </g>
+
+  <g fill="#202020">
+    <rect x="208" y="366" width="80" height="292" rx="40" />
+    <rect x="340" y="302" width="80" height="420" rx="40" />
+    <rect x="472" y="344" width="80" height="336" rx="40" />
+  </g>
+
+  <g fill="#3E63DD">
+    <rect x="632" y="302" width="184" height="80" rx="40" />
+    <rect x="632" y="642" width="132" height="80" rx="40" />
+  </g>
+</svg>

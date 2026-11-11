@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+DMG 窗口背景（540×380，与 build/darwin/Taskfile.yml 的窗口尺寸一致）。
+
+Wails 模板给的背景图右下角带官方红色 logo，是安装界面里唯一的外来视觉，
+这里换成一张中性灰渐变：不抢应用图标和「应用程序」快捷方式的注意力，
+也避免第三方标识出现在发布物上。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 380" width="540" height="380">
+  <defs>
+    <linearGradient id="shiyu-dmg-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4F4F6" />
+      <stop offset="1" stop-color="#E6E6EA" />
+    </linearGradient>
+  </defs>
+  <rect width="540" height="380" fill="url(#shiyu-dmg-bg)" />
+</svg>

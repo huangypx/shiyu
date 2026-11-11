@@ -14,6 +14,9 @@ build/*
 !build/config.yml
 !build/Taskfile.yml
 !build/appicon.png
+# 图标的手写 SVG 源与位图中间件都必须跟踪：只提交成品 icns/ico 的话，
+# 下一次改图标就得从头反推几何。渲染命令见 common:generate:brand。
+!build/icons/
 !build/darwin/
 build/darwin/*
 !build/darwin/Taskfile.yml
@@ -21,6 +24,7 @@ build/darwin/*
 !build/darwin/Info.dev.plist
 !build/darwin/icons.icns
 !build/darwin/dmg-background.png
+!build/darwin/dmg-file-icon.png
 !build/darwin/dmg-file-icon.icns
 !build/windows/
 build/windows/*

@@ -1,14 +1,8 @@
 import { Button, Kbd } from '@radix-ui/themes';
-import {
-  Activity,
-  AudioLines,
-  History,
-  PenLine,
-  Plus,
-  Settings,
-} from 'lucide-react';
+import { Activity, History, PenLine, Plus, Settings } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 
+import BrandMark from '@/components/BrandMark';
 import { useCallsStore } from '@/features/calls/callsStore';
 import { useNotesStore } from '@/features/history/notesStore';
 import { useRecordingActions } from '@/features/recorder/useRecordingSession';
@@ -35,8 +29,9 @@ export default function Sidebar() {
       }
     >
       <div className={styles.brand}>
-        {/* 品牌标记跟随导航项用线性图标，实心方块会压过 14px 的应用名。 */}
-        <AudioLines size={16} className={styles.brandMark} aria-hidden="true" />
+        {/* 品牌标记与应用图标同源，但只有单色：彩色砖块会压过 14px 的应用名，
+            也让置顶的品牌位比导航项更响。 */}
+        <BrandMark size={18} className={styles.brandMark} />
         <span>拾语</span>
       </div>
 

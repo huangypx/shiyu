@@ -1,7 +1,7 @@
-import { AudioLines } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 
+import BrandMark from '@/components/BrandMark';
 import {
   isWindowMaximised,
   minimiseWindow,
@@ -124,7 +124,7 @@ export default function WindowChrome({ platform }: Props) {
 
   return (
     <header className={styles.chrome} onDoubleClick={handleDoubleClick}>
-      <AudioLines size={14} className={styles.mark} aria-hidden="true" />
+      <BrandMark size={15} className={styles.mark} />
       <span className={styles.title}>拾语</span>
       <div className={styles.controls} data-window-controls>
         <button

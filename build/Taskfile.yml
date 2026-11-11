@@ -190,17 +190,62 @@ tasks:
     cmds:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts
 
+  # 品牌位图全部由 build/icons 里的手写 SVG 渲染而来。渲染器只在手动刷新
+  # 资源时使用，日常构建消费的是已提交的位图，和 generate:icons 消费
+  # appicon.png 是同一种「源 + 产物」关系，构建链路上不需要 SVG 工具。
+  generate:brand:
+    summary: 从手写 SVG 重新渲染品牌位图（应用图标、DMG 背景与文件图标、favicon）
+    dir: build
+    sources:
+      - "icons/*.svg"
+    generates:
+      - "appicon.png"
+      - "darwin/dmg-file-icon.png"
+      - "darwin/dmg-background.png"
+      - "../frontend/public/favicon.png"
+    preconditions:
+      - sh: command -v rsvg-convert >/dev/null 2>&1
+        msg: "缺少 rsvg-convert：macOS 用 brew install librsvg，Debian 系用 apt install librsvg2-bin。"
+    cmds:
+      - mkdir -p ../frontend/public
+      - rsvg-convert -w 1024 -h 1024 icons/app-icon.svg -o appicon.png
+      - rsvg-convert -w 1024 -h 1024 icons/dmg-file.svg -o darwin/dmg-file-icon.png
+      - rsvg-convert -w 540 -h 380 icons/dmg-background.svg -o darwin/dmg-background.png
+      - rsvg-convert -w 64 -h 64 icons/app-icon.svg -o ../frontend/public/favicon.png
+      - |
+        # 尺寸错了要等到打包后才发现，比在这里拦住贵得多。
+        # sips 只有 macOS 自带；其他平台跳过自检，交给人工核对。
+        if command -v sips >/dev/null 2>&1; then
+          check() {
+            actual="$(sips -g pixelWidth -g pixelHeight "$2" | awk '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{print w"x"h}')"
+            if [ "$actual" != "$1" ]; then
+              echo "尺寸不符：$2 期望 $1，实际 $actual" >&2
+              exit 1
+            fi
+          }
+          check 1024x1024 appicon.png
+          check 1024x1024 darwin/dmg-file-icon.png
+          check 540x380 darwin/dmg-background.png
+          check 64x64 ../frontend/public/favicon.png
+        fi
+
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
     run: once
     dir: build
     sources:
       - "appicon.png"
+      - "darwin/dmg-file-icon.png"
     generates:
       - "darwin/icons.icns"
       - "windows/icon.ico"
+      - "darwin/dmg-file-icon.icns"
     cmds:
       - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+      # DMG 文件图标只在 Finder 里出现，不需要 .ico，所以显式传空字符串。
+      # CLI 的 -windowsfilename 默认就是 build/windows/icon.ico，省掉这个参数
+      # 会把上一条刚写好的 Windows 图标覆盖成这个反相配色版本。
+      - wails3 generate icons -input darwin/dmg-file-icon.png -windowsfilename "" -macfilename darwin/dmg-file-icon.icns
 
   dev:frontend:
     summary: Runs the frontend in development mode

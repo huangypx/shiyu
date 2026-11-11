@@ -14,7 +14,7 @@ desktop/        窗口层（原生 chrome）、浮动窗口、全局热键与粘
 frontend/src/   React 应用：app/（外壳与路由）、pages/（页面）、features/（业务模块与 store）、
                 services/（Wails 适配、录音、存储）、styles/（全局样式 token）、mocks/（演示数据）
 frontend/bindings/ Wails v3 CLI 生成的 TypeScript 绑定（提交到仓库）
-build/          Wails v3 构建配置、图标与各平台打包资源
+build/          Wails v3 构建配置、图标与各平台打包资源（图标 SVG 源在 build/icons/）
 Taskfile.yml    Wails v3 构建任务入口
 docs/           桌面交互设计与视觉基线
 main.go         Wails 入口与嵌入式前端资源
