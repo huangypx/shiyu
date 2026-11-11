@@ -574,16 +574,15 @@ func (c *Controller) applyWindowChrome() {
 	c.applyMainChrome(window)
 }
 
+// applyBubbleChrome 把窗口切成浮动球形态。非 macOS 平台过去是空实现，
+// Windows 现在要在这里收掉 DWM 的玻璃边框（否则球后面会露出方框）；
+// 其他平台的实现仍然是空函数。
 func (c *Controller) applyBubbleChrome(window *application.WebviewWindow) {
-	if runtime.GOOS == "darwin" {
-		setBubbleChrome(window.NativeWindow())
-	}
+	setBubbleChrome(window.NativeWindow())
 }
 
 func (c *Controller) applyMainChrome(window *application.WebviewWindow) {
-	if runtime.GOOS == "darwin" {
-		restoreMainChrome(window.NativeWindow())
-	}
+	restoreMainChrome(window.NativeWindow())
 }
 
 // windowScreen 返回窗口当前所在的屏幕；Wails 还没创建原生窗口时

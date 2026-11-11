@@ -7,7 +7,7 @@
 主窗口和浮动圆圈共用同一个 Wails 窗口，但窗口层按平台使用不同的原生能力：
 
 - **macOS**：主窗口是 titled window，使用 `MacTitleBarHidden` 保留真实的红黄绿交通灯，并把标题栏设为透明、全尺寸内容。交通灯不再单独占一行：它们直接落在 36px 的应用顶带里，左侧让出的 78px 由顶带自己预留（展开时是侧栏头部，收起后由顶栏接管），因此品牌、面包屑、窗口操作和交通灯同处一条水平线。切到 92×92 浮动模式时，cgo 适配器把 `styleMask` 临时切为 borderless 并关闭窗口阴影；展开时恢复进入浮动模式前的 titled mask，因此交通灯、透明标题栏和阴影都会回来。透明 WKWebView 依赖 `private_mac_apis` 构建标签。
-- **Windows 11 / Linux**：窗口保持 frameless（92×92 悬浮球依赖这一点），使用透明 webview，并且和 macOS 一样只有一条 36px 顶带：左端是侧栏头部（品牌 + 收起按钮），右端是 HTML 绘制的最小化/最大化/关闭（Windows 46px 宽、Linux 36px 宽，只有关闭键 hover 变红）。不再另起一行 caption，窗口标题只在侧栏头部出现一次；按钮的点击语义、hover 颜色由前端决定，窗口本身仍是 Wails 的原生窗口。画布由 AppShell 的 CSS 绘制，不安装 Mica/GTK 原生材质视图。
+- **Windows 11 / Linux**：窗口保持 frameless（92×92 悬浮球依赖这一点），使用透明 webview，并且和 macOS 一样只有一条 36px 顶带：左端是侧栏头部（品牌 + 收起按钮），右端是 HTML 绘制的最小化/最大化/关闭（Windows 46px 宽、Linux 36px 宽，只有关闭键 hover 变红）。不再另起一行 caption，窗口标题只在侧栏头部出现一次；按钮的点击语义、hover 颜色由前端决定，窗口本身仍是 Wails 的原生窗口。Windows 上还有一个只在浮动模式出现的细节：Wails 默认把 1px 玻璃边框扩进客户区（Aero 阴影与 Win11 圆角都来自它），92px 的球窗因此会露出一圈浅色描边和一层变暗的方框；`desktop/chrome_windows.go` 在切到浮动模式时把扩框收回（边距 0），并在 `WM_ACTIVATE` 之后重压一次，展开时恢复 1px。画布由 AppShell 的 CSS 绘制，不安装 Mica/GTK 原生材质视图。
 
 Wails 只提供窗口层原生能力；网页里的按钮、输入框和图标仍是 HTML/CSS，不会变成 NSButton 或 Win32 控件。真正需要 100% 原生控件时，应改用 SwiftUI/WinUI，或做原生外壳。
 
