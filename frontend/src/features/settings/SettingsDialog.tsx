@@ -26,7 +26,7 @@ type Props = {
   onAppearanceChange: (appearance: Appearance) => void;
 };
 
-// 设置弹窗不进路由：浮动窗右键菜单与全局快捷键都可能
+// 设置弹窗不进路由：浮动球的设置图标与全局快捷键都可能
 // 在任意页面打开它，路由切换会卸载正在编辑的表单。
 export default function SettingsDialog({
   settings,

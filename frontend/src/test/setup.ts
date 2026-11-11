@@ -29,3 +29,13 @@ if (!Element.prototype.hasPointerCapture) {
   Element.prototype.setPointerCapture = () => undefined;
   Element.prototype.releasePointerCapture = () => undefined;
 }
+
+// jsdom 没有实现 elementFromPoint；浮动球的失焦悬停要按坐标命中
+// 按钮，测试里先补一个返回 null 的最小实现，再按需 spy。
+if (!('elementFromPoint' in document)) {
+  Object.defineProperty(document, 'elementFromPoint', {
+    configurable: true,
+    writable: true,
+    value: () => null,
+  });
+}

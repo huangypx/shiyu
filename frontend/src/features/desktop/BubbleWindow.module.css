@@ -1,19 +1,17 @@
-/* 浮动窗口是 92x92 的透明方形：圆形按钮是唯一可见元素，
-   同时充当窗口拖拽手柄。右键菜单由 Wails v3 的原生菜单绘制，
-   窗口尺寸不再变化。 */
+/* 浮动窗口是 92x126 的透明方形：顶部 92x92 是唯一可见的圆形
+   按钮，同时充当窗口拖拽手柄；底部 34px 预留给悬停时出现的
+   工具栏。窗口固定加高，悬停不再改原生窗口尺寸。 */
 .shell {
   position: relative;
-  display: grid;
-  place-items: center;
   width: 92px;
-  height: 92px;
+  height: 126px;
   overflow: visible;
   background: transparent;
   /* 音量写在外壳上：球体与音晕共用一个 --mic-level，
      两者各自读取，互不叠加缩放。 */
   --mic-level: 0;
-  /* 原生窗口拖拽：指针离开这个 92x92 窗口后，系统拖拽循环
-     仍在跟踪。代价是拖拽区会吞掉 click，组件改用 mouseup 判断轻点。
+  /* 原生窗口拖拽：指针离开这个窗口后，系统拖拽循环仍在跟踪。
+     代价是拖拽区会吞掉 click，组件改用 mouseup 判断轻点。
      轻点的双击保护窗口和右键菜单会话期间，组件会临时把它改成
      no-drag，避免菜单关闭时残留的按压把窗口拖到指针处。 */
   --wails-draggable: drag;
@@ -21,11 +19,22 @@
 
 .shell[data-leaving='true'] {
   opacity: 0;
+  /* 缩放围绕球心而不是 126px 窗口的中心，球才不会在淡出时漂移。 */
   transform: scale(0.86);
+  transform-origin: 50% 46px;
   pointer-events: none;
   transition:
     opacity 120ms ease-out,
     transform 120ms ease-out;
+}
+
+/* 球占据窗口顶部 92x92；工具栏条在它下面，不能跟着球一起缩放。 */
+.ball {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
 }
 
 .button {
@@ -42,14 +51,17 @@
   cursor: grab;
   box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
   /* 90ms 的插值把 23Hz 的采样接成连续动画；72px 的球最多
-     放大到约 81px，加上 6px 边框仍在 92px 的窗口内。 */
+     放大到约 81px，加上 6px 边框仍在 92px 的球区内。 */
   transition:
     transform 90ms ease-out,
     background-color 160ms ease,
     box-shadow 160ms ease;
 }
 
-.button:hover {
+/* 应用失焦时 WebKit 不更新 :hover；原生悬停桥写入 data-hover 后
+   球也要有同样的视觉反馈。 */
+.button:hover,
+.shell[data-hover='true'] .button {
   box-shadow: 0 8px 20px rgba(15, 15, 17, 0.32);
   filter: brightness(1.08);
 }
@@ -66,7 +78,7 @@
 }
 
 /* 音量环是按钮的兄弟节点：它按音量加深并轻微外扩，不叠加按钮
-   自身的缩放。92px 的窗口放不下更大的装饰，所以主要靠对比度
+   自身的缩放。92px 的球区放不下更大的装饰，所以主要靠对比度
    表达音量，而不是无限放大或发光。 */
 .levelHalo {
   position: absolute;
@@ -113,6 +125,85 @@
 
 .flashError {
   animation: flashError 1.4s ease-out;
+}
+
+/* 悬停工具栏：球下方的三个图标。容器始终接收指针并退出拖拽区，
+   避免在透明条里按下时把窗口拖走。 */
+.toolbar {
+  position: absolute;
+  top: 92px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 92px;
+  height: 34px;
+  --wails-draggable: no-drag;
+  pointer-events: auto;
+}
+
+.toolbarPill {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  border-radius: var(--app-radius-pill);
+  background: var(--gray-12);
+  color: var(--gray-1);
+  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out,
+    visibility 0s linear 140ms;
+}
+
+/* 三种触发方式共用一套显隐：鼠标悬停、键盘聚焦、macOS 原生
+   悬停桥写入的 data-hover。 */
+.shell:hover .toolbarPill,
+.shell:focus-within .toolbarPill,
+.shell[data-hover='true'] .toolbarPill {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition-delay: 0s;
+}
+
+.toolbarButton {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+/* 悬停或键盘聚焦时把胶囊的配色反转到按钮上：深色主题是黑底白
+   图标，浅色主题是白底黑图标。data-hovered 由原生指针桥写入，
+   应用失焦时也有效；这样指针落在哪一个动作上一眼可见。 */
+.toolbarButton:hover,
+.toolbarButton[data-hovered='true'],
+.toolbarButton:focus-visible {
+  background: var(--gray-1);
+  color: var(--gray-12);
+}
+
+.toolbarButton:focus-visible {
+  outline: 2px solid var(--indigo-8);
+  outline-offset: 1px;
 }
 
 /* 呼吸环始终留有一部分不透明度：截图、开会分屏或用户只是
@@ -167,5 +258,10 @@
 
   .levelHalo {
     transform: none;
+  }
+
+  .toolbarPill {
+    transform: none;
+    transition: none;
   }
 }

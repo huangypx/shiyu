@@ -3,8 +3,8 @@
 
 /**
  * Controller 持有唯一的 Wails v3 窗口，并在主窗口与浮动球之间
- * 切换它的尺寸、置顶和 macOS chrome。右键菜单由系统原生菜单
- * 负责（见 menu.go），不再需要放大窗口来容纳弹层。
+ * 切换它的尺寸、置顶和 macOS chrome。浮动球的主操作由前端
+ * 悬停工具栏提供，右键菜单只保留隐藏与退出（见 menu.go）。
  * @module
  */
 
@@ -56,7 +56,7 @@ export function MinimiseWindow(): $CancellablePromise<void> {
 
 /**
  * OpenSettings 展开主窗口，并请求渲染层打开偏好设置对话框，
- * 对应浮动球右键菜单里的条目。
+ * 对应浮动球悬停工具栏里的设置图标。
  */
 export function OpenSettings(): $CancellablePromise<void> {
     return $Call.ByID(312554983);
@@ -100,14 +100,6 @@ export function SetMode(mode: string): $CancellablePromise<void> {
  */
 export function SetReduceMotion(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(529343266, enabled);
-}
-
-/**
- * SetTranscribing 让菜单项在「没有进行中的录音」时置灰。原生菜单
- * 每次弹出前都会按当前状态重建，因此这里改完下次弹出即可见。
- */
-export function SetTranscribing(active: boolean): $CancellablePromise<void> {
-    return $Call.ByID(1675960766, active);
 }
 
 export function ShowMainWindow(): $CancellablePromise<void> {

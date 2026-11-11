@@ -1,7 +1,11 @@
 import { useMemo } from 'react';
 
 import { useFeedback } from '@/app/useFeedback';
-import { showMainWindow, toggleDesktopMode } from '@/services/bridge';
+import {
+  openSettingsWindow as requestOpenSettings,
+  showMainWindow,
+  toggleDesktopMode,
+} from '@/services/bridge';
 
 export function useWindowActions() {
   const feedback = useFeedback();
@@ -12,6 +16,13 @@ export function useWindowActions() {
           await showMainWindow();
         } catch {
           feedback('暂时无法展开桌面窗口');
+        }
+      },
+      openSettingsWindow: async () => {
+        try {
+          await requestOpenSettings();
+        } catch {
+          feedback('暂时无法打开偏好设置');
         }
       },
       toggleWindowMode: async () => {

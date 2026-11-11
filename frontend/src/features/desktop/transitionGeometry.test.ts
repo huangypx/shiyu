@@ -38,6 +38,13 @@ describe('transitionVars', () => {
     expect(vars.shadow).toBe(1);
   });
 
+  it('窗口为工具栏加高后，水滴仍落在顶部 92px 的球区', () => {
+    const vars = transitionVars(1, 92, 92, 126);
+    expect(vars.width).toBe(72);
+    expect(vars.height).toBe(72);
+    expect(vars.inset).toBe(10);
+  });
+
   it('中间帧只贴住 anchor 角，尺寸随窗口一起收敛', () => {
     const vars = transitionVars(0.5, 92, 500, 410);
     expect(vars.width).toBeGreaterThan(72);

@@ -43,7 +43,7 @@ src/
 
 使用 hash 的原因：Wails 的 assetserver 只提供一份 `index.html`，path 路由在刷新时会 404，而 hash 路由在 `wails dev`、打包产物和浏览器预览里行为一致。
 
-设置弹窗**不进路由**。它需要能从浮动窗右键菜单和全局快捷键在任意页面打开，路由切换会卸载正在编辑的表单。
+设置弹窗**不进路由**。它需要能从浮动球设置图标和全局快捷键在任意页面打开，路由切换会卸载正在编辑的表单。
 
 ## 状态
 
@@ -74,7 +74,7 @@ src/
 
 ## 服务层
 
-`services/bridge.ts` 是唯一与 Wails 绑定的地方，其它模块只调用它导出的函数。它同时负责两件事：把后端事件（`asr:partial`、`desktop:cancel-transcribe`、`desktop:state` 等）转成回调，以及在取消时把等待方从 `await` 里立刻放出来（`raceWithAbort` 抛 `TransferCancelled`）。桌面端导入 Wails v3 CLI 生成的 `frontend/bindings/**`，并用 `window._wails` 判断运行时是否存在；浏览器预览没有该运行时，函数会返回 `undefined` 或退化成 `navigator.clipboard`，调用方负责决定演示数据与降级提示。
+`services/bridge.ts` 是唯一与 Wails 绑定的地方，其它模块只调用它导出的函数。它同时负责两件事：把后端事件（`asr:partial`、`desktop:state` 等）转成回调，以及在取消时把等待方从 `await` 里立刻放出来（`raceWithAbort` 抛 `TransferCancelled`）。桌面端导入 Wails v3 CLI 生成的 `frontend/bindings/**`，并用 `window._wails` 判断运行时是否存在；浏览器预览没有该运行时，函数会返回 `undefined` 或退化成 `navigator.clipboard`，调用方负责决定演示数据与降级提示。
 
 ### 持久化
 
@@ -104,7 +104,7 @@ Radix Themes 提供按钮、弹窗、下拉、开关、标签页、输入框与 
 
 JS 驱动的动效走 `motion`（Framer Motion 的现行包）：记录卡的两面背对背常驻在同一个网格单元里，整张卡一次转 180°，转到一半时才露出另一面，因此不需要 `AnimatePresence` 换面；动效按需加载 `domAnimation`。背面用 `aria-hidden` + `inert` 关在可访问性树和 Tab 之外。悬停、状态色这类单值过渡仍用 CSS `transition`，不必为它引入动效库；`prefers-reduced-motion` 下不做翻转，两面改为淡入淡出。
 
-浮动窗的右键菜单使用 Wails v3 的原生 `ContextMenu`，不经过 Radix Portal，也不再出现「窗口放大成 296×276」的自绘菜单几何。
+浮动球的主操作放在前端绘制的悬停工具栏里，只有「隐藏悬浮球」「退出拾语」还走 Wails v3 的原生 `ContextMenu`。macOS 的 WebKit 默认只在 key window 更新 hover，`desktop/hover_darwin.go` 用 `NSTrackingActiveAlways` 的 tracking area 把进入/离开转成 `window.__shiyuBubbleHover`，保证应用失焦时工具栏也能出现；鼠标移动时还会把坐标送进 `window.__shiyuBubblePointer`，由页面命中按钮并加 `data-hovered`。工具栏不经过 Radix Portal。
 
 ## 工程化
 

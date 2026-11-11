@@ -12,7 +12,6 @@ const backend = vi.hoisted(() => ({
 }));
 const controller = vi.hoisted(() => ({
   SetReduceMotion: vi.fn(),
-  SetTranscribing: vi.fn(),
 }));
 const events = vi.hoisted(() => ({
   handlers: new Map<string, (event: { data?: unknown }) => void>(),
@@ -33,7 +32,6 @@ vi.mock('@wailsio/runtime', () => ({ Events: { On: events.On } }));
 import {
   cancelTranscriptionRequest,
   setReduceMotion,
-  setTranscribing,
   subscribeAsrPartial,
   subscribeDesktopTransition,
   transcribe,
@@ -53,7 +51,6 @@ beforeEach(() => {
   });
   backend.PolishText.mockResolvedValue({ text: '整理', call: { id: 'c2' } });
   backend.CancelTranscription.mockResolvedValue(undefined);
-  controller.SetTranscribing.mockResolvedValue(undefined);
   controller.SetReduceMotion.mockResolvedValue(undefined);
 });
 
@@ -90,12 +87,10 @@ describe('bridge', () => {
     await expect(pending).rejects.toBeInstanceOf(TransferCancelled);
   });
 
-  it('取消动作交给后端中断在途请求，并同步菜单可用性', () => {
+  it('取消动作交给后端中断在途请求', () => {
     void cancelTranscriptionRequest();
-    void setTranscribing(true);
 
     expect(backend.CancelTranscription).toHaveBeenCalled();
-    expect(controller.SetTranscribing).toHaveBeenCalledWith(true);
   });
 
   it('增量事件只转发 data.text', () => {

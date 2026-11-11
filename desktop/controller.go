@@ -25,7 +25,10 @@ const (
 	mainHeight    = 820
 	mainMinWidth  = 640
 	mainMinHeight = 640
-	bubbleSize    = 92
+	// 浮动窗顶部 92x92 是球，底部 34px 预留给悬停工具栏。固定
+	// 加高能让工具栏始终落在工作区内，也避免悬停时改窗口尺寸。
+	bubbleWidth  = 92
+	bubbleHeight = 126
 
 	// 首次进入浮动模式时，球停在当前屏幕工作区右下角，
 	// 与边缘留出一点呼吸空间。
@@ -51,8 +54,8 @@ type State struct {
 }
 
 // Controller 持有唯一的 Wails v3 窗口，并在主窗口与浮动球之间
-// 切换它的尺寸、置顶和 macOS chrome。右键菜单由系统原生菜单
-// 负责（见 menu.go），不再需要放大窗口来容纳弹层。
+// 切换它的尺寸、置顶和 macOS chrome。浮动球的主操作由前端
+// 悬停工具栏提供，右键菜单只保留隐藏与退出（见 menu.go）。
 type Controller struct {
 	app     *backend.App
 	desktop *application.App
@@ -64,10 +67,6 @@ type Controller struct {
 	reason       string
 	started      bool
 	targetWindow string
-	// cancelItem 是浮动球右键菜单里的「取消这段转写」。菜单由
-	// RegisterBubbleMenu 创建，控制器只负责按录音状态切换可用性。
-	cancelItem *application.MenuItem
-
 	// 窗口切换是一次异步动画：transitioning 期间 SetMode 直接
 	// 忽略新请求，避免两次动画互相追着改 frame。
 	transitioning    bool
@@ -110,6 +109,10 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 		// 就绪后按当前模式补一次 chrome，覆盖「以球启动」和
 		// 首次显示时窗口尚未创建的情况。
 		c.window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+			// 悬停桥必须在窗口第一次显示前装好；动画守卫只影响
+			// chrome 与位置，不应连带跳过它。
+			enableBubbleHoverTracking(c.window.NativeWindow())
+			c.syncBubbleHoverTracking()
 			// 动画中途的 RuntimeReady 不能按当前模式重刷 chrome，
 			// 否则会把刚切好的 borderless 或位置覆盖掉。
 			if c.isTransitioning() {
@@ -255,7 +258,8 @@ func (c *Controller) beginTransition(mode string) error {
 	c.mu.Unlock()
 
 	direction := transitionShrink
-	anchor := anchorBottomRight
+	// 展开不使用锚点；收起在下面按球的左右位置重算。
+	anchor := anchorTopRight
 	var from, to application.Rect
 	var mainBounds application.Rect
 	rememberMain := false
@@ -270,11 +274,9 @@ func (c *Controller) beginTransition(mode string) error {
 		c.applyBubbleChrome(window)
 		from = window.Bounds()
 		to = c.bubbleRect()
-		anchor = anchorCorner(
+		anchor = bubbleAnchor(
 			to.X+to.Width/2,
-			to.Y+to.Height/2,
 			mainBounds.X+mainBounds.Width/2,
-			mainBounds.Y+mainBounds.Height/2,
 		)
 		// 收缩过程中保持可见；最终置顶跟随用户配置。
 		window.SetAlwaysOnTop(true)
@@ -288,7 +290,7 @@ func (c *Controller) beginTransition(mode string) error {
 	}
 
 	// 只有收起需要逐帧改 frame；展开是等球淡出后直接回到记忆
-	// 的主窗口位置。动画期间不能保留 92px 的 max 或 640px 的
+	// 的主窗口位置。动画期间不能保留 92x126 的 max 或 640px 的
 	// min，否则中间帧会被系统夹住。
 	if mode == ModeBubble {
 		window.SetMaxSize(0, 0)
@@ -406,8 +408,8 @@ func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
 		c.setWindowBounds(bounds)
 	}
 	if mode == ModeBubble {
-		window.SetMaxSize(bubbleSize, bubbleSize)
-		window.SetMinSize(bubbleSize, bubbleSize)
+		window.SetMaxSize(bubbleWidth, bubbleHeight)
+		window.SetMinSize(bubbleWidth, bubbleHeight)
 		window.SetAlwaysOnTop(c.keepBubbleOnTop())
 	} else {
 		window.SetMaxSize(0, 0)
@@ -418,6 +420,7 @@ func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
 	c.mu.Lock()
 	c.mode = mode
 	c.mu.Unlock()
+	c.syncBubbleHoverTracking()
 	if mode == ModeMain {
 		// 从悬浮球展开时应用可能不在前台；落定后主动取得焦点，
 		// 否则窗口虽然恢复在原位，仍会被其他应用盖住。
@@ -558,6 +561,9 @@ func (c *Controller) HideWindow() error {
 		return nil
 	}
 	_ = c.persistBubblePosition()
+	// 窗口隐藏后收不到 mouseExited，先让前端清掉悬停态，下次
+	// 显示时不会带着工具栏出现。
+	c.window.ExecJS("window.__shiyuBubbleHover&&window.__shiyuBubbleHover(false)")
 	c.window.Hide()
 	return nil
 }
@@ -626,7 +632,7 @@ func (c *Controller) persistBubblePosition() error {
 	// v3 的窗口坐标是绝对屏幕坐标。用户可能在拖拽后拔掉副屏，
 	// 因此保存前按窗口中心所在屏幕的工作区再钳制一次。
 	x, y := c.window.Position()
-	center := point{X: x + bubbleSize/2, Y: y + bubbleSize/2}
+	center := point{X: x + bubbleWidth/2, Y: y + bubbleHeight/2}
 	position := clampPoint(point{X: x, Y: y}, c.workAreaAt(center))
 
 	cfg := c.app.GetDesktopConfig()
@@ -647,39 +653,12 @@ func (c *Controller) positionBubble() {
 }
 
 // OpenSettings 展开主窗口，并请求渲染层打开偏好设置对话框，
-// 对应浮动球右键菜单里的条目。
+// 对应浮动球悬停工具栏里的设置图标。
 func (c *Controller) OpenSettings() error {
 	if err := c.ShowMainWindow(); err != nil {
 		return err
 	}
 	c.emitSettings()
-	return nil
-}
-
-// attachCancelMenuItem 保存菜单项引用，供 SetTranscribing 更新。
-func (c *Controller) attachCancelMenuItem(item *application.MenuItem) {
-	c.mu.Lock()
-	c.cancelItem = item
-	c.mu.Unlock()
-}
-
-// requestCancelTranscription 把右键菜单的点击转成前端事件：录音
-// 状态由 React 侧持有，Go 只负责转发这次意图。
-func (c *Controller) requestCancelTranscription() {
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:cancel-transcribe")
-	}
-}
-
-// SetTranscribing 让菜单项在「没有进行中的录音」时置灰。原生菜单
-// 每次弹出前都会按当前状态重建，因此这里改完下次弹出即可见。
-func (c *Controller) SetTranscribing(active bool) error {
-	c.mu.RLock()
-	item := c.cancelItem
-	c.mu.RUnlock()
-	if item != nil {
-		item.SetEnabled(active)
-	}
 	return nil
 }
 
@@ -856,6 +835,10 @@ func (c *Controller) showWindow() {
 		return
 	}
 	c.window.Show()
+	// 悬停桥依赖原生 webview；显示后再补一次，覆盖窗口隐藏后
+	// 重新显示的情况，重复安装是安全的。
+	enableBubbleHoverTracking(c.window.NativeWindow())
+	c.syncBubbleHoverTracking()
 	// 动画途中热键也可能把窗口叫出来；这时不能按旧模式重刷
 	// chrome 或位置，否则会把收缩/展开的中间 frame 拽回去。
 	if c.isTransitioning() {
@@ -876,6 +859,18 @@ func (c *Controller) positionBubbleIfNeeded() {
 	if mode == ModeBubble && !transitioning {
 		c.positionBubble()
 	}
+}
+
+// syncBubbleHoverTracking 只在浮动模式开启指针跟踪：主窗口面积大，
+// 每次鼠标移动都送进网页没有意义，也会增加 WebView 往返。
+func (c *Controller) syncBubbleHoverTracking() {
+	if c.window == nil {
+		return
+	}
+	c.mu.RLock()
+	bubble := c.mode == ModeBubble
+	c.mu.RUnlock()
+	setBubbleHoverTrackingEnabled(c.window.NativeWindow(), bubble)
 }
 
 func (c *Controller) applyWindowChrome() {
@@ -953,8 +948,8 @@ func rectContains(area application.Rect, position point) bool {
 
 func clampPoint(position point, area application.Rect) point {
 	return point{
-		X: clampInt(position.X, area.X, area.X+area.Width-bubbleSize),
-		Y: clampInt(position.Y, area.Y, area.Y+area.Height-bubbleSize),
+		X: clampInt(position.X, area.X, area.X+area.Width-bubbleWidth),
+		Y: clampInt(position.Y, area.Y, area.Y+area.Height-bubbleHeight),
 	}
 }
 

@@ -4,13 +4,13 @@ import { useRecordingActions } from '@/features/recorder/useRecordingSession';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUiStore } from '@/store/uiStore';
 
-// 浮动模式不走路由：整个窗口只有一个 92x92 的圆圈。
-// 右键菜单由 Wails v3 的原生 context menu 提供。
+// 浮动模式不走路由：窗口顶部是录音球，悬停时在下方显示三个操作。
+// 右键只保留隐藏悬浮球和退出拾语。
 export default function BubbleRoute() {
   const status = useSessionStore((state) => state.status);
   const flash = useUiStore((state) => state.bubbleFlash);
-  const { toggleRecording } = useRecordingActions();
-  const { expandWindow } = useWindowActions();
+  const { toggleRecording, cancelTranscription } = useRecordingActions();
+  const { expandWindow, openSettingsWindow } = useWindowActions();
 
   return (
     <BubbleWindow
@@ -20,6 +20,8 @@ export default function BubbleRoute() {
       flash={flash}
       onToggle={toggleRecording}
       onExpand={expandWindow}
+      onCancel={cancelTranscription}
+      onOpenSettings={openSettingsWindow}
     />
   );
 }

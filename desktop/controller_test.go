@@ -55,7 +55,7 @@ func TestClampPointKeepsBubbleInsideWorkArea(t *testing.T) {
 		t.Fatalf("negative position clamped to %+v, want the work area origin", got)
 	}
 
-	want := point{X: area.X + area.Width - bubbleSize, Y: area.Y + area.Height - bubbleSize}
+	want := point{X: area.X + area.Width - bubbleWidth, Y: area.Y + area.Height - bubbleHeight}
 	if got := clampPoint(point{X: 5000, Y: 5000}, area); got != want {
 		t.Fatalf("oversized position clamped to %+v, want %+v", got, want)
 	}

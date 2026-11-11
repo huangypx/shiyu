@@ -35,7 +35,7 @@ export function useDesktopBridge() {
     const unsubscribeTransition = subscribeDesktopTransition((transition) =>
       useWindowTransitionStore.getState().start(transition),
     );
-    // 控制器从外部打开了偏好设置（浮动窗右键菜单），
+    // 控制器从外部打开了偏好设置（浮动球的设置图标），
     // 这里只负责把弹窗打开。窗口还在过渡时先等落定，
     // 否则 Radix Dialog 会在缩放的窗口里被拉扯一帧。
     const unsubscribeSettings = subscribeDesktopSettings(() => {

@@ -209,22 +209,10 @@ export function subscribeAsrPartial(callback: (text: string) => void) {
   });
 }
 
-// setTranscribing 同步录音状态给 Go：右键菜单据此决定「取消这段
-// 转写」是否可用。
-export function setTranscribing(active: boolean) {
-  return desktopOnly(() => Controller.SetTranscribing(active));
-}
-
 // setReduceMotion 把系统的「减少动态效果」同步给原生窗口动画。
 // 原生窗口的 setFrame 读不到 CSS 媒体查询，只能由前端告诉 Go。
 export function setReduceMotion(enabled: boolean) {
   return desktopOnly(() => Controller.SetReduceMotion(enabled));
-}
-
-// subscribeDesktopCancelTranscription 接收浮动球右键菜单的取消动作。
-export function subscribeDesktopCancelTranscription(callback: () => void) {
-  if (!isDesktop()) return () => undefined;
-  return Events.On('desktop:cancel-transcribe', () => callback());
 }
 
 // organize 显式带上当前预设：用户可能刚在设置里切换过，而后端

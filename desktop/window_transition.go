@@ -21,10 +21,8 @@ const (
 	shrinkDuration  = 300 * time.Millisecond
 	transitionFrame = time.Second / 60
 
-	anchorTopLeft     = "top-left"
-	anchorTopRight    = "top-right"
-	anchorBottomLeft  = "bottom-left"
-	anchorBottomRight = "bottom-right"
+	anchorTopLeft  = "top-left"
+	anchorTopRight = "top-right"
 )
 
 // windowBounds 是发给前端的窗口矩形。单独定义而不是复用
@@ -90,13 +88,14 @@ func interpolateBounds(from, to application.Rect, t float64) application.Rect {
 	}
 }
 
-// bubbleTargetBounds 计算悬浮球的目标矩形。area 是悬浮球所在屏幕
-// 的工作区；saved 是用户上次拖到的位置，必须已经确认仍落在某块
-// 屏幕上，否则传 nil 走默认右下角。
+// bubbleTargetBounds 计算悬浮球窗口的目标矩形。窗口比球本身高，
+// 底部留给悬停工具栏；area 是所在屏幕的工作区，saved 是用户上次
+// 拖到的位置，必须已经确认仍落在某块屏幕上，否则传 nil 走默认
+// 右下角。
 func bubbleTargetBounds(area application.Rect, saved *point) application.Rect {
 	position := point{
-		X: area.X + area.Width - bubbleSize - bubbleRightInset,
-		Y: area.Y + area.Height - bubbleSize - bubbleBottomInset,
+		X: area.X + area.Width - bubbleWidth - bubbleRightInset,
+		Y: area.Y + area.Height - bubbleHeight - bubbleBottomInset,
 	}
 	if saved != nil {
 		position = *saved
@@ -105,24 +104,20 @@ func bubbleTargetBounds(area application.Rect, saved *point) application.Rect {
 	return application.Rect{
 		X:      position.X,
 		Y:      position.Y,
-		Width:  bubbleSize,
-		Height: bubbleSize,
+		Width:  bubbleWidth,
+		Height: bubbleHeight,
 	}
 }
 
-// anchorCorner 决定收起时水滴贴住主窗口的哪个角：参考主窗口
-// 中心，窗口往悬浮球那一侧收。展开不使用锚点，悬浮球原地淡出
-// 后窗口直接回到记忆位置。
-func anchorCorner(centerX, centerY, referenceX, referenceY int) string {
-	horizontal := "left"
+// bubbleAnchor 决定收起时水滴贴住悬浮球的哪一侧。球固定在浮动窗
+// 顶部，纵向必须贴顶才能和球重合；横向按球中心与主窗口中心的
+// 左右关系取靠主窗口的一侧。展开不使用锚点，悬浮球原地淡出后
+// 窗口直接回到记忆位置。
+func bubbleAnchor(centerX, referenceX int) string {
 	if centerX > referenceX {
-		horizontal = "right"
+		return anchorTopRight
 	}
-	vertical := "top"
-	if centerY > referenceY {
-		vertical = "bottom"
-	}
-	return vertical + "-" + horizontal
+	return anchorTopLeft
 }
 
 func centeredRect(area application.Rect, width, height int) application.Rect {

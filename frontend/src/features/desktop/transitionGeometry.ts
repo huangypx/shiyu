@@ -7,7 +7,8 @@ export type WindowTransition = WindowTransitionPayload & {
   phase: WindowTransitionPhase;
 };
 
-// 水滴在末态要与悬浮球按钮完全重合：92px 窗、72px 按钮、6px 白边。
+// 水滴在末态要与悬浮球按钮完全重合：92px 宽的球区、72px 按钮、
+// 6px 白边。
 export const BUBBLE_BUTTON_SIZE = 72;
 const BUBBLE_BUTTON_RADIUS = BUBBLE_BUTTON_SIZE / 2;
 

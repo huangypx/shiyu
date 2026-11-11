@@ -13,8 +13,8 @@ func TestNewWindowOptionsFollowsHost(t *testing.T) {
 	if opts.Hidden {
 		t.Fatal("the window must be visible so WKWebView can initialize")
 	}
-	if opts.Width != bubbleSize || opts.Height != bubbleSize {
-		t.Fatalf("StartInBubble size = %dx%d, want %dx%d", opts.Width, opts.Height, bubbleSize, bubbleSize)
+	if opts.Width != bubbleWidth || opts.Height != bubbleHeight {
+		t.Fatalf("StartInBubble size = %dx%d, want %dx%d", opts.Width, opts.Height, bubbleWidth, bubbleHeight)
 	}
 	if opts.BackgroundType != application.BackgroundTypeTransparent {
 		t.Fatalf("background type = %v, want transparent", opts.BackgroundType)

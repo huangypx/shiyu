@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import BubbleWindow from './BubbleWindow';
@@ -39,14 +39,19 @@ function renderBubble(overrides: Partial<Props> = {}) {
     flash: '',
     onToggle: vi.fn(),
     onExpand: vi.fn(),
+    onCancel: vi.fn(),
+    onOpenSettings: vi.fn(),
     ...overrides,
   };
   const view = render(<BubbleWindow {...props} />);
   return { ...view, props };
 }
 
+// 工具栏加入后窗口里不再只有一个按钮：按可访问名称定位主球。
 function bubbleButton() {
-  return screen.getByRole('button');
+  return screen.getByRole('button', {
+    name: /开始录音|结束录音|正在开启麦克风|正在整理文字/,
+  });
 }
 
 // 音量变量挂在外壳上：球体与音晕共用它，音晕才不会跟着球体缩放。
@@ -65,6 +70,8 @@ describe('BubbleWindow', () => {
     bridge.saveBubblePosition.mockReset();
     mic.subscribeMicLevel.mockClear();
     mic.reset();
+    delete window.__shiyuBubbleHover;
+    delete window.__shiyuBubblePointer;
   });
 
   afterEach(() => {
@@ -73,9 +80,7 @@ describe('BubbleWindow', () => {
 
   it('待录音时只显示开始录音，不出现停止图标', () => {
     renderBubble();
-    expect(
-      screen.getByRole('button', { name: '开始录音，双击展开主窗口' }),
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: '开始录音' })).toBeVisible();
     expect(screen.queryByRole('button', { name: '结束录音' })).toBeNull();
   });
 
@@ -110,47 +115,131 @@ describe('BubbleWindow', () => {
     ).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('双击只展开主窗口，不误触录音', () => {
+  it('单击立即切换录音，并在一段时间后恢复拖拽', () => {
     vi.useFakeTimers();
     const { props } = renderBubble();
 
     clickBubble();
-    // 第一下轻点后暂时关掉原生拖拽区，第二下才不会落到
-    // macOS 的标题栏双击手势上。
-    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
-      'no-drag',
-    );
-
-    void act(() => vi.advanceTimersByTime(120));
-    clickBubble();
-
-    expect(props.onExpand).toHaveBeenCalledTimes(1);
-    expect(props.onToggle).not.toHaveBeenCalled();
-
-    void act(() => vi.advanceTimersByTime(500));
-    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
-      'drag',
-    );
-  });
-
-  it('单击仍在双击窗口结束后切换录音，并恢复拖拽', () => {
-    vi.useFakeTimers();
-    const { props } = renderBubble();
-
-    clickBubble();
-    void act(() => vi.advanceTimersByTime(259));
-    expect(props.onToggle).not.toHaveBeenCalled();
-
-    void act(() => vi.advanceTimersByTime(1));
+    // 双击展开已经移除，单击不再需要等待双击判定。
     expect(props.onToggle).toHaveBeenCalledTimes(1);
     expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
       'no-drag',
     );
 
-    void act(() => vi.advanceTimersByTime(500));
+    void act(() => vi.advanceTimersByTime(499));
+    expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
+      'no-drag',
+    );
+
+    void act(() => vi.advanceTimersByTime(1));
     expect(bubbleShell().style.getPropertyValue('--wails-draggable')).toBe(
       'drag',
     );
+  });
+
+  it('连续两次点击只切换录音，不再展开主窗口', () => {
+    const { props } = renderBubble();
+
+    clickBubble();
+    clickBubble();
+
+    expect(props.onToggle).toHaveBeenCalledTimes(2);
+    expect(props.onExpand).not.toHaveBeenCalled();
+  });
+
+  it('待录音时工具栏只显示展开和设置', () => {
+    renderBubble();
+    const toolbar = screen.getByRole('toolbar', { name: '浮动球操作' });
+
+    expect(
+      within(toolbar).getByRole('button', { name: '展开主窗口' }),
+    ).toBeVisible();
+    expect(
+      within(toolbar).getByRole('button', { name: '打开偏好设置' }),
+    ).toBeVisible();
+    expect(
+      within(toolbar).queryByRole('button', { name: '取消这段转写' }),
+    ).toBeNull();
+  });
+
+  it('待录音时展开和设置各自触发对应动作', () => {
+    const { props } = renderBubble();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开主窗口' }));
+    expect(props.onExpand).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开偏好设置' }));
+    expect(props.onOpenSettings).toHaveBeenCalledTimes(1);
+
+    // 工具栏按钮不冒泡成球的录音开关。
+    expect(props.onToggle).not.toHaveBeenCalled();
+    expect(props.onCancel).not.toHaveBeenCalled();
+  });
+
+  it('开始录音后工具栏只保留取消，展开和设置暂时隐藏', () => {
+    for (const state of [
+      { isArming: true },
+      { isRecording: true },
+      { isProcessing: true },
+    ]) {
+      const view = renderBubble(state);
+      const toolbar = screen.getByRole('toolbar', { name: '浮动球操作' });
+      const cancel = within(toolbar).getByRole('button', {
+        name: '取消这段转写',
+      });
+
+      expect(cancel).toBeEnabled();
+      expect(
+        within(toolbar).queryByRole('button', { name: '展开主窗口' }),
+      ).toBeNull();
+      expect(
+        within(toolbar).queryByRole('button', { name: '打开偏好设置' }),
+      ).toBeNull();
+
+      fireEvent.click(cancel);
+      expect(view.props.onCancel).toHaveBeenCalledTimes(1);
+      expect(view.props.onToggle).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  });
+
+  it('原生悬停桥切换 data-hover，卸载后移除入口', () => {
+    const { unmount } = renderBubble();
+    expect(window.__shiyuBubbleHover).toBeTypeOf('function');
+
+    act(() => window.__shiyuBubbleHover?.(true));
+    expect(bubbleShell()).toHaveAttribute('data-hover', 'true');
+
+    act(() => window.__shiyuBubbleHover?.(false));
+    expect(bubbleShell()).not.toHaveAttribute('data-hover');
+
+    unmount();
+    expect(window.__shiyuBubbleHover).toBeUndefined();
+    expect(window.__shiyuBubblePointer).toBeUndefined();
+  });
+
+  it('原生指针坐标高亮命中的按钮', () => {
+    renderBubble();
+    const expand = screen.getByRole('button', { name: '展开主窗口' });
+    const settings = screen.getByRole('button', { name: '打开偏好设置' });
+    const elementFromPoint = vi
+      .spyOn(document, 'elementFromPoint')
+      .mockReturnValue(expand);
+
+    act(() => window.__shiyuBubblePointer?.(20, 109));
+    expect(expand).toHaveAttribute('data-hovered', 'true');
+    expect(settings).not.toHaveAttribute('data-hovered');
+
+    elementFromPoint.mockReturnValue(settings);
+    act(() => window.__shiyuBubblePointer?.(46, 109));
+    expect(expand).not.toHaveAttribute('data-hovered');
+    expect(settings).toHaveAttribute('data-hovered', 'true');
+
+    elementFromPoint.mockReturnValue(null);
+    act(() => window.__shiyuBubblePointer?.(46, 46));
+    expect(settings).not.toHaveAttribute('data-hovered');
+
+    elementFromPoint.mockRestore();
   });
 
   it('右键菜单关闭前的残留按压不会启动原生拖拽', () => {
@@ -236,7 +325,6 @@ describe('BubbleWindow', () => {
     expect(props.onToggle).not.toHaveBeenCalled();
 
     clickBubble();
-    void act(() => vi.advanceTimersByTime(300));
     expect(props.onToggle).toHaveBeenCalledTimes(1);
   });
 });

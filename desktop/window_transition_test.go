@@ -49,35 +49,40 @@ func TestBubbleTargetBoundsUsesSavedPointAndClamps(t *testing.T) {
 	area := application.Rect{X: 100, Y: 50, Width: 1200, Height: 800}
 	saved := point{X: 400, Y: 300}
 	got := bubbleTargetBounds(area, &saved)
-	if got != (application.Rect{X: 400, Y: 300, Width: bubbleSize, Height: bubbleSize}) {
+	if got != (application.Rect{X: 400, Y: 300, Width: bubbleWidth, Height: bubbleHeight}) {
 		t.Fatalf("saved bubble bounds = %+v", got)
 	}
 
 	outside := point{X: 5000, Y: -500}
 	got = bubbleTargetBounds(area, &outside)
 	want := application.Rect{
-		X:      area.X + area.Width - bubbleSize,
+		X:      area.X + area.Width - bubbleWidth,
 		Y:      area.Y,
-		Width:  bubbleSize,
-		Height: bubbleSize,
+		Width:  bubbleWidth,
+		Height: bubbleHeight,
 	}
 	if got != want {
 		t.Fatalf("clamped bubble bounds = %+v, want %+v", got, want)
 	}
 }
 
-func TestAnchorCornerPicksBubbleQuadrant(t *testing.T) {
-	if got := anchorCorner(800, 500, 700, 400); got != anchorBottomRight {
-		t.Fatalf("right/bottom anchor = %q, want %q", got, anchorBottomRight)
+func TestBubbleTargetBoundsLeavesRoomForToolbar(t *testing.T) {
+	area := application.Rect{X: 0, Y: 0, Width: 1200, Height: 800}
+	got := bubbleTargetBounds(area, nil)
+	if got.Height != bubbleHeight || got.Height <= bubbleWidth {
+		t.Fatalf("bubble height = %d, want %d with toolbar room", got.Height, bubbleHeight)
 	}
-	if got := anchorCorner(600, 300, 700, 400); got != anchorTopLeft {
-		t.Fatalf("left/top anchor = %q, want %q", got, anchorTopLeft)
+	if got.Y+got.Height > area.Height {
+		t.Fatalf("default bubble bounds %+v escaped work area %+v", got, area)
 	}
-	if got := anchorCorner(800, 300, 700, 400); got != anchorTopRight {
-		t.Fatalf("right/top anchor = %q, want %q", got, anchorTopRight)
+}
+
+func TestBubbleAnchorFollowsMainWindowSide(t *testing.T) {
+	if got := bubbleAnchor(800, 700); got != anchorTopRight {
+		t.Fatalf("right anchor = %q, want %q", got, anchorTopRight)
 	}
-	if got := anchorCorner(600, 500, 700, 400); got != anchorBottomLeft {
-		t.Fatalf("left/bottom anchor = %q, want %q", got, anchorBottomLeft)
+	if got := bubbleAnchor(600, 700); got != anchorTopLeft {
+		t.Fatalf("left anchor = %q, want %q", got, anchorTopLeft)
 	}
 }
 

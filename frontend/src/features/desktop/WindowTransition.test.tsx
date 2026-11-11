@@ -7,16 +7,16 @@ import { useWindowTransitionStore } from './windowTransitionStore';
 const shrinkPayload = {
   direction: 'shrink' as const,
   durationMs: 300,
-  anchor: 'bottom-right' as const,
+  anchor: 'top-right' as const,
   from: { x: 0, y: 0, width: 1000, height: 820 },
-  to: { x: 200, y: 300, width: 92, height: 92 },
+  to: { x: 200, y: 300, width: 92, height: 126 },
 };
 
 const expandPayload = {
   direction: 'expand' as const,
   durationMs: 160,
-  anchor: 'bottom-right' as const,
-  from: { x: 200, y: 300, width: 92, height: 92 },
+  anchor: 'top-right' as const,
+  from: { x: 200, y: 300, width: 92, height: 126 },
   to: { x: 0, y: 0, width: 1000, height: 820 },
 };
 
@@ -49,7 +49,7 @@ describe('WindowTransition', () => {
     expect(overlay).toHaveAttribute('data-phase', 'running');
     expect(overlay?.querySelector('[data-anchor]')).toHaveAttribute(
       'data-anchor',
-      'bottom-right',
+      'top-right',
     );
   });
 
