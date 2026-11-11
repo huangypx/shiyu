@@ -21,9 +21,9 @@ const (
 	ModeMain   = "main"
 	ModeBubble = "bubble"
 
-	mainWidth     = 1280
+	mainWidth     = 1000
 	mainHeight    = 820
-	mainMinWidth  = 980
+	mainMinWidth  = 640
 	mainMinHeight = 640
 	bubbleSize    = 92
 
