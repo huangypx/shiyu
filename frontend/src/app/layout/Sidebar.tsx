@@ -13,9 +13,12 @@ import { NavLink, useNavigate } from 'react-router-dom';
 
 import BrandMark from '@/components/BrandMark';
 import { useCallsStore } from '@/features/calls/callsStore';
+import { useTitlebarDoubleClick } from '@/features/desktop/useTitlebarDoubleClick';
 import { useNotesStore } from '@/features/history/notesStore';
 import { useRecordingActions } from '@/features/recorder/useRecordingSession';
+import { formatShortcut } from '@/lib/shortcut';
 import { useMediaQuery } from '@/lib/useMediaQuery';
+import { useDesktopStore } from '@/store/desktopStore';
 import { useUiStore } from '@/store/uiStore';
 
 import styles from './Sidebar.module.css';
@@ -37,7 +40,11 @@ export default function Sidebar() {
   const { clearDraft } = useRecordingActions();
   // 抽屉形态下头部按钮的职责是「关闭」，而不是把侧栏折叠进布局外。
   const isDrawer = useMediaQuery('(max-width: 680px)');
+  const platform = useDesktopStore((state) => state.runtime.platform);
   const asideRef = useRef<HTMLElement>(null);
+  // 侧栏头部与顶带共用同一条 36px 标题带，双击空白处应当和系统
+  // caption 一样最大化/还原；抽屉形态下这块是浮层标题，不接管。
+  const handleTitlebarDoubleClick = useTitlebarDoubleClick(!isDrawer);
 
   // 折叠后侧栏仍留在 DOM 里做位移动画；宽度归零时它不该再被
   // Tab 或读屏命中，所以用 inert 而不是只靠视觉隐藏。
@@ -53,12 +60,18 @@ export default function Sidebar() {
       }
       data-collapsed={sidebarCollapsed ? 'true' : 'false'}
     >
-      <div className={styles.header}>
+      <div className={styles.header} onDoubleClick={handleTitlebarDoubleClick}>
         {/* 品牌标记与应用图标同源，但只有单色：彩色砖块会压过 14px 的应用名，
             也让置顶的品牌位比导航项更响。 */}
         <BrandMark size={18} className={styles.brandMark} />
         <span className={styles.brandName}>拾语</span>
-        <Tooltip content={isDrawer ? '关闭菜单' : '收起侧栏 (⌘\\)'}>
+        <Tooltip
+          content={
+            isDrawer
+              ? '关闭菜单'
+              : `收起侧栏 (${formatShortcut(platform, '\\')})`
+          }
+        >
           <IconButton
             className={styles.headerToggle}
             variant="ghost"
@@ -88,7 +101,7 @@ export default function Sidebar() {
           }}
         >
           <Plus size={15} /> 新建记录
-          <Kbd className={styles.shortcut}>⌘N</Kbd>
+          <Kbd className={styles.shortcut}>{formatShortcut(platform, 'N')}</Kbd>
         </Button>
 
         <nav className={styles.nav} aria-label="主导航">

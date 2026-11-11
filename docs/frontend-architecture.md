@@ -11,7 +11,7 @@ src/
     App.tsx           浮动模式分支 / RouterProvider，≤ 40 行
     providers.tsx     外观偏好解析 + Radix Theme 默认值
     router.tsx        createHashRouter 路由表
-    layout/           AppShell、Sidebar、TopBar、WindowChrome
+    layout/           AppShell、Sidebar、TopBar、WindowControls
     useFeedback.ts    主窗口 Toast / 浮动窗闪烁的统一出口
   pages/              路由页面：record、history、calls
   features/           按业务能力切分，页面只做组装

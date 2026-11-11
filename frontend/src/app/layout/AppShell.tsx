@@ -3,12 +3,10 @@ import { Outlet } from 'react-router-dom';
 
 import AppSidebar from '@/app/layout/Sidebar';
 import TopBar from '@/app/layout/TopBar';
-import WindowChrome from '@/app/layout/WindowChrome';
 import { useFeedback } from '@/app/useFeedback';
 import Toast from '@/components/ui/Toast';
 import SettingsDialog from '@/features/settings/SettingsDialog';
 import { useSettingsStore } from '@/features/settings/settingsStore';
-import { detectPlatform } from '@/services/platform';
 import { useDesktopStore } from '@/store/desktopStore';
 import { useUiStore } from '@/store/uiStore';
 
@@ -45,7 +43,8 @@ export default function AppShell() {
 
   return (
     <div className={styles.shell}>
-      <WindowChrome platform={runtime.platform ?? detectPlatform()} />
+      {/* 窗口标题只有一条 36px 顶带：侧栏头部与 TopBar 并排拼成它，
+          Windows/Linux 的窗口按钮落在 TopBar 右端。 */}
       <div className={styles.body}>
         <AppSidebar />
         <main className={styles.main}>

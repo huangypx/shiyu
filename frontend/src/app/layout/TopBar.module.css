@@ -36,14 +36,20 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--app-ink-faint);
   font-size: 12px;
   white-space: nowrap;
 }
 
+/* 顶带要和窗口按钮挤在同一行：窄窗口下面包屑先截断，
+   不能把窗口按钮顶出可视区，也不能撑出横向滚动。 */
 .crumb strong {
+  overflow: hidden;
   color: var(--app-ink);
   font-weight: 500;
+  text-overflow: ellipsis;
 }
 
 .actions {
@@ -51,6 +57,16 @@
   align-items: center;
   gap: 2px;
   margin-left: auto;
+}
+
+/* 窗口按钮贴齐窗口右上角：右内边距清零，hover 底色才能落到圆角上；
+   浮动按钮让出 6px，免得两个控件的 hover 区连成一片。 */
+.topbar[data-has-controls='true'] {
+  padding-right: 0;
+}
+
+.topbar[data-has-controls='true'] .actions {
+  margin-right: 6px;
 }
 
 /* 侧栏收起后顶栏从窗口左边缘开始，交通灯就落在它的内边距里：

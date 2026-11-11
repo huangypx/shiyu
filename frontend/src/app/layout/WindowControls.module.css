@@ -1,31 +1,8 @@
-.chrome {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  height: var(--window-chrome-height);
-  padding-left: 12px;
-  background: transparent;
-  --wails-draggable: drag;
-}
-
-.mark {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  color: var(--app-ink);
-}
-
-.title {
-  margin-left: 8px;
-  color: var(--app-ink-faint);
-  font-size: 12px;
-}
-
 .controls {
   display: flex;
   height: 100%;
-  margin-left: auto;
+  /* 顶带是拖拽手柄，按钮必须退出拖拽区域，否则点不动。 */
+  --wails-draggable: no-drag;
 }
 
 .control {
@@ -36,7 +13,6 @@
   border: 0;
   background: transparent;
   color: var(--app-ink-soft);
-  --wails-draggable: no-drag;
   transition: background-color 120ms ease;
 }
 
@@ -45,11 +21,13 @@
   color: var(--app-ink);
 }
 
+/* 关闭键用系统红：和原生 caption 的语义保持一致，其余按钮只提亮底色。 */
 .close:hover {
   background: #c42b1c;
   color: #fff;
 }
 
+/* Linux 的窗口按钮比 Windows 窄，与 GNOME 的 36px 见方对齐。 */
 :global(:root[data-platform='linux']) .control {
   width: 36px;
 }

@@ -2,12 +2,16 @@ import { IconButton, Tooltip } from '@radix-ui/themes';
 import { Menu, Minimize2, PanelLeftOpen, Plus, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { useTitlebarDoubleClick } from '@/features/desktop/useTitlebarDoubleClick';
 import { useWindowActions } from '@/features/desktop/useWindowActions';
 import { useRecordingActions } from '@/features/recorder/useRecordingSession';
+import { formatShortcut } from '@/lib/shortcut';
 import { useMediaQuery } from '@/lib/useMediaQuery';
+import { useDesktopStore } from '@/store/desktopStore';
 import { useUiStore } from '@/store/uiStore';
 
 import styles from './TopBar.module.css';
+import WindowControls from './WindowControls';
 
 // 面包屑只描述位置，不承担导航：桌面外壳没有多层级路径。
 function crumbTitle(pathname: string) {
@@ -28,14 +32,21 @@ export default function TopBar() {
   const { toggleWindowMode } = useWindowActions();
   const { clearDraft } = useRecordingActions();
   const isDrawer = useMediaQuery('(max-width: 680px)');
+  const platform = useDesktopStore((state) => state.runtime.platform);
   // 侧栏收起后顶栏接管窗口左上角：第一个控件是展开按钮，
   // 后面补一个「新建记录」，主操作不会跟着侧栏一起消失。
   const showCollapsedControls = sidebarCollapsed && !isDrawer;
+  // Windows/Linux 没有系统 caption，窗口按钮就落在顶带右端；
+  // macOS 用原生交通灯，顶带不需要额外留白。
+  const hasWindowControls = platform === 'windows' || platform === 'linux';
+  const handleTitlebarDoubleClick = useTitlebarDoubleClick();
 
   return (
     <header
       className={styles.topbar}
       data-collapsed={showCollapsedControls ? 'true' : 'false'}
+      data-has-controls={hasWindowControls ? 'true' : 'false'}
+      onDoubleClick={handleTitlebarDoubleClick}
     >
       <IconButton
         className={styles.menu}
@@ -51,7 +62,7 @@ export default function TopBar() {
 
       {showCollapsedControls && (
         <div className={styles.leading}>
-          <Tooltip content="展开侧栏 (⌘\)">
+          <Tooltip content={`展开侧栏 (${formatShortcut(platform, '\\')})`}>
             <IconButton
               variant="ghost"
               color="gray"
@@ -62,7 +73,7 @@ export default function TopBar() {
               <PanelLeftOpen size={16} />
             </IconButton>
           </Tooltip>
-          <Tooltip content="新建记录 (⌘N)">
+          <Tooltip content={`新建记录 (${formatShortcut(platform, 'N')})`}>
             <IconButton
               variant="ghost"
               color="gray"
@@ -98,6 +109,8 @@ export default function TopBar() {
           </IconButton>
         </Tooltip>
       </div>
+
+      <WindowControls platform={platform} />
     </header>
   );
 }

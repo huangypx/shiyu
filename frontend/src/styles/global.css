@@ -51,26 +51,20 @@ body {
   }
 }
 
-/* 原生窗口层。macOS 不再单独占一行标题栏：交通灯直接排在应用顶带里，
-   和品牌、面包屑、窗口操作同处一条水平线，所以这里只声明顶带高度，
-   以及给交通灯让出的左起点。
-   Windows/Linux 仍在顶部画 32px caption，顶带落在 caption 之下。 */
+/* 窗口标题只有一条 36px 顶带：macOS 把原生交通灯排在它里面，
+   Windows/Linux 把 HTML 窗口按钮排在它右端，三种平台的正文都从
+   同一条基线开始，不再有第二条 caption。 */
 :root {
-  --window-chrome-height: 0px;
   /* 原生交通灯的中心在距窗口顶部 16px；36px 顶带把内容中心放在 18px，
      两者只差 2px，视觉上就是同一条线，又不会让按钮贴住内容。 */
   --app-header-height: 36px;
-  /* 交通灯排在 x = 9–69，78 是留 9px 呼吸后的内容起点。 */
+  /* 交通灯排在 x = 9–69，78 是留 9px 呼吸后的内容起点；
+     其余平台没有交通灯，这个变量保持 0。 */
   --app-titlebar-inset: 0px;
 }
 
 :root[data-platform='darwin'] {
   --app-titlebar-inset: 78px;
-}
-
-:root[data-platform='windows'],
-:root[data-platform='linux'] {
-  --window-chrome-height: 32px;
 }
 
 button {
