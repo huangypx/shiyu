@@ -35,6 +35,11 @@ func (h *hotkeyRegistration) Stop() {
 	if h.signals != nil {
 		signal.Stop(h.signals)
 	}
+	// 非 Linux 平台的注册对象只带有不可用原因，没有可关闭的通道；
+	// 直接 close(nil) 会在退出时 panic。
+	if h.stop == nil {
+		return
+	}
 	select {
 	case <-h.stop:
 		return
