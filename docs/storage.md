@@ -75,7 +75,7 @@ SQLite 3，驱动为 `modernc.org/sqlite`（纯 Go，不需要 cgo）。连接�
 - `typeless-settings`、`typeless-desktop-settings`：预览环境的配置副本。
 - `typeless-notes`：预览环境的历史；桌面端首次启动会导入 SQLite，成功后删除。
 - `typeless-appearance`：外观偏好，桌面端也只存在 localStorage。
-- `typeless-sidebar`、`typeless-record-split`：侧栏开合与记录页两栏比例，属于前端布局状态。
+- `typeless-record-split`：记录页两栏比例，属于前端布局状态。
 - key 名沿用改名前的 `typeless-*`，不要改名；改名会让已有预览数据消失。
 
 ## 迁移

@@ -18,13 +18,6 @@ export function useAppShortcuts() {
         useUiStore.getState().openSettings();
         return;
       }
-      // 侧栏折叠沿用工具类应用的 ⌘\ ：不用 ⌘B，免得和未来编辑区的
-      // 加粗快捷键打架。
-      if (event.key === '\\') {
-        event.preventDefault();
-        useUiStore.getState().toggleSidebarCollapsed();
-        return;
-      }
       if (event.key.toLowerCase() === 'n' && !event.shiftKey) {
         event.preventDefault();
         useSessionStore.getState().resetDraft();

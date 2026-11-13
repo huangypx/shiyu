@@ -1,17 +1,18 @@
 import { Theme } from '@radix-ui/themes';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { toggleMaximiseWindow } from '@/services/bridge';
+import { enterBubble, toggleMaximiseWindow } from '@/services/bridge';
 import { useDesktopStore } from '@/store/desktopStore';
+import { useSessionStore } from '@/store/sessionStore';
 import { useUiStore } from '@/store/uiStore';
 
 import TopBar from './TopBar';
 
 // 顶栏通过 useRecordingActions / useWindowActions 间接依赖桌面桥接，
-// 这里只关心顶部控件的显隐与折叠开关，桥接全部替换成空实现。
+// 这里只关心导航、设置与窗口操作，桥接全部替换成空实现。
 vi.mock('@/services/bridge', () => ({
   cancelDesktopTranscription: vi.fn(),
   cancelTranscriptionRequest: vi.fn(),
@@ -20,13 +21,14 @@ vi.mock('@/services/bridge', () => ({
   organize: vi.fn(),
   organizeSession: vi.fn(),
   pasteText: vi.fn(),
+  publishSession: vi.fn().mockResolvedValue(undefined),
   subscribeAsrPartial: vi.fn(() => () => undefined),
   subscribeDesktopMicLevel: vi.fn(() => () => undefined),
   takeMainCommands: vi.fn(() => Promise.resolve([])),
   toggleDesktopRecording: vi.fn(),
   transcribe: vi.fn(),
   TransferCancelled: class TransferCancelled extends Error {},
-  enterBubble: vi.fn(),
+  enterBubble: vi.fn(() => Promise.resolve()),
   showMainWindow: vi.fn(),
   openSettingsWindow: vi.fn(),
   isWindowMaximised: vi.fn(() => Promise.resolve(false)),
@@ -35,11 +37,16 @@ vi.mock('@/services/bridge', () => ({
   toggleMaximiseWindow: vi.fn(() => Promise.resolve()),
 }));
 
-function renderTopBar() {
+function RouteProbe() {
+  return <output aria-label="当前页面">{useLocation().pathname}</output>;
+}
+
+function renderTopBar(initialEntries: string[] = ['/']) {
   return render(
     <Theme>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <TopBar />
+        <RouteProbe />
       </MemoryRouter>
     </Theme>,
   );
@@ -49,7 +56,13 @@ describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    useUiStore.setState({ sidebarCollapsed: false, sidebarOpen: false });
+    useUiStore.setState({ settingsOpen: false });
+    useSessionStore.setState({
+      status: 'idle',
+      stage: null,
+      transcript: '',
+      organized: '',
+    });
     // 窗口按钮只在桌面平台出现：默认回到网页预览，单个用例再改成
     // windows / darwin，避免用例之间互相污染。
     useDesktopStore.setState((state) => ({
@@ -57,22 +70,50 @@ describe('TopBar', () => {
     }));
   });
 
-  it('侧栏展开时不在顶栏重复放侧栏操作', () => {
+  it('品牌、历史、调用记录和设置都在顶栏', async () => {
+    const user = userEvent.setup();
     renderTopBar();
-    expect(screen.queryByRole('button', { name: '展开侧栏' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '新建记录' })).toBeNull();
-    expect(screen.getByText('工作区')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('link', { name: '历史记录' }));
+    expect(screen.getByLabelText('当前页面')).toHaveTextContent('/history');
+
+    await user.click(screen.getByRole('link', { name: '调用记录' }));
+    expect(screen.getByLabelText('当前页面')).toHaveTextContent('/calls');
+
+    await user.click(screen.getByRole('link', { name: '拾语，返回编辑器' }));
+    expect(screen.getByLabelText('当前页面')).toHaveTextContent('/');
+
+    await user.click(screen.getByRole('button', { name: '偏好设置' }));
+    expect(useUiStore.getState().settingsOpen).toBe(true);
   });
 
-  it('侧栏收起后顶栏接管展开与新建', async () => {
-    useUiStore.setState({ sidebarCollapsed: true });
+  it('新建记录清空草稿并回到记录页', async () => {
+    useSessionStore.setState({ transcript: '记一下明天的安排' });
+    renderTopBar(['/history']);
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: '新建记录' }));
+
+    expect(useSessionStore.getState().transcript).toBe('');
+    expect(screen.getByLabelText('当前页面')).toHaveTextContent('/');
+  });
+
+  it('右上角保留收进悬浮球', async () => {
     renderTopBar();
-    const expand = screen.getByRole('button', { name: '展开侧栏' });
-    expect(
-      screen.getByRole('button', { name: '新建记录' }),
-    ).toBeInTheDocument();
-    await userEvent.setup().click(expand);
-    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: '收进悬浮球' }));
+
+    expect(enterBubble).toHaveBeenCalledTimes(1);
+  });
+
+  it('不再渲染旧的菜单开关与面包屑', () => {
+    renderTopBar();
+
+    expect(screen.queryByRole('button', { name: '打开菜单' })).toBeNull();
+    expect(screen.queryByText('工作区')).toBeNull();
   });
 
   it('windows 上顶带右端接管窗口按钮', () => {
@@ -80,6 +121,7 @@ describe('TopBar', () => {
       runtime: { ...state.runtime, platform: 'windows' },
     }));
     renderTopBar();
+
     expect(screen.getByRole('button', { name: '最小化' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '最大化' })).toBeInTheDocument();
     expect(
@@ -92,6 +134,7 @@ describe('TopBar', () => {
       runtime: { ...state.runtime, platform: 'darwin' },
     }));
     renderTopBar();
+
     expect(screen.queryByRole('button', { name: '最小化' })).toBeNull();
   });
 
@@ -100,7 +143,8 @@ describe('TopBar', () => {
       runtime: { ...state.runtime, platform: 'windows' },
     }));
     renderTopBar();
-    await userEvent.setup().dblClick(screen.getByText('工作区'));
+
+    await userEvent.setup().dblClick(screen.getByRole('banner'));
     expect(toggleMaximiseWindow).toHaveBeenCalledTimes(1);
   });
 });

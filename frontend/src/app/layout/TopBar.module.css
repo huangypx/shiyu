@@ -1,55 +1,44 @@
+/* 顶带同时是窗口标题栏和导航栏：品牌最左，导航紧随其后，
+   设置、收进悬浮球和窗口按钮靠右。顶带空白处保留拖拽区。 */
 .topbar {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
   height: var(--app-header-height);
-  padding: 0 14px 0 18px;
+  padding: 0 10px 0 max(14px, var(--app-titlebar-inset));
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface);
-  /* 侧栏收起/展开时内容跟着让位，而不是整段横移一步。 */
-  transition: padding-left 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  /* 顶带其余部分是原生拖拽手柄。 */
   --wails-draggable: drag;
 }
 
-/* 收起时压在最左边的两个按钮。这里刻意不用「延迟淡入」的入场动画：
-   动画在不活跃的窗口里会被 WebKit 暂停，带 fill-mode 的话按钮会一直
-   停在 opacity: 0，看起来就像消失；可见性必须由布局状态决定，不能
-   依赖动画真的跑过一遍。 */
-.leading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+/* 顶带其余部分是原生拖拽手柄，按钮和链接必须退出拖拽区域。 */
 .topbar button,
 .topbar a {
   --wails-draggable: no-drag;
 }
 
-.menu {
-  display: none;
-}
-
-.crumb {
-  display: flex;
+.brand {
+  display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--app-ink-faint);
-  font-size: 12px;
+  gap: 7px;
+  margin-right: 10px;
+  color: var(--app-ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
   white-space: nowrap;
 }
 
-/* 顶带要和窗口按钮挤在同一行：窄窗口下面包屑先截断，
-   不能把窗口按钮顶出可视区，也不能撑出横向滚动。 */
-.crumb strong {
-  overflow: hidden;
-  color: var(--app-ink);
-  font-weight: 500;
-  text-overflow: ellipsis;
+.brand:hover {
+  color: var(--app-accent-strong);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .actions {
@@ -57,6 +46,29 @@
   align-items: center;
   gap: 2px;
   margin-left: auto;
+}
+
+/* 图标入口统一成 28px 的圆角按钮：顶带只有 36px 高，
+   再大的点击目标会挤掉品牌和窗口按钮。 */
+.action {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-ink-soft);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.action:hover,
+.action[aria-current='page'] {
+  background: var(--app-surface-hover);
+  color: var(--app-ink);
 }
 
 /* 窗口按钮贴齐窗口右上角：右内边距清零，hover 底色才能落到圆角上；
@@ -69,23 +81,18 @@
   margin-right: 6px;
 }
 
-/* 侧栏收起后顶栏从窗口左边缘开始，交通灯就落在它的内边距里：
-   内容必须让到 78px 之后，否则会和按钮重叠。 */
-.topbar[data-collapsed='true'] {
-  padding-left: max(18px, var(--app-titlebar-inset));
-  /* 和侧栏的滑出同步：内容先淡出 90ms，顶带再开始让位。 */
-  transition: padding-left 200ms cubic-bezier(0.4, 0, 0.2, 1) 90ms;
-}
-
 @media (max-width: 680px) {
   .topbar {
-    /* 抽屉形态下侧栏是覆盖层，顶栏始终贴着窗口左边缘，
-       这里的让位和侧栏是否收起无关。 */
-    padding-right: 10px;
+    padding-right: 8px;
     padding-left: max(10px, var(--app-titlebar-inset));
   }
 
-  .menu {
-    display: grid;
+  /* 窄窗口先把应用名让出来，品牌标记仍然保留。 */
+  .brandName {
+    display: none;
+  }
+
+  .brand {
+    margin-right: 4px;
   }
 }

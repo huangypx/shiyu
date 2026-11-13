@@ -1,7 +1,6 @@
 import { useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 
-import AppSidebar from '@/app/layout/Sidebar';
 import TopBar from '@/app/layout/TopBar';
 import { useFeedback } from '@/app/useFeedback';
 import Toast from '@/components/ui/Toast';
@@ -14,8 +13,6 @@ import styles from './AppShell.module.css';
 
 export default function AppShell() {
   const runtime = useDesktopStore((state) => state.runtime);
-  const sidebarOpen = useUiStore((state) => state.sidebarOpen);
-  const closeSidebar = useUiStore((state) => state.closeSidebar);
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const closeSettings = useUiStore((state) => state.closeSettings);
   const appearance = useUiStore((state) => state.appearance);
@@ -43,26 +40,11 @@ export default function AppShell() {
 
   return (
     <div className={styles.shell}>
-      {/* 窗口标题只有一条 36px 顶带：侧栏头部与 TopBar 并排拼成它，
-          Windows/Linux 的窗口按钮落在 TopBar 右端。 */}
-      <div className={styles.body}>
-        <AppSidebar />
-        <main className={styles.main}>
-          <TopBar />
-          <div className={styles.scroll}>
-            <Outlet />
-          </div>
-        </main>
-      </div>
-
-      {sidebarOpen && (
-        <button
-          type="button"
-          className={styles.scrim}
-          aria-label="关闭菜单"
-          onClick={closeSidebar}
-        />
-      )}
+      {/* 窗口标题只有一条 36px 顶带：品牌、导航和窗口按钮都排在这一行。 */}
+      <TopBar />
+      <main className={styles.scroll}>
+        <Outlet />
+      </main>
 
       <Toast />
 

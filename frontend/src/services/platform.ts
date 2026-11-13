@@ -35,8 +35,7 @@ export function detectPlatform(): Platform {
   return hostPlatform() ?? 'web';
 }
 
-// 在 GetState 返回前使用，首帧就已经为标题栏和
-// 半透明侧栏留出正确的空间。
+// 在 GetState 返回前使用，首帧就已经为标题栏留出正确的空间。
 export function defaultBackdrop(platform: Platform): Backdrop {
   switch (platform) {
     case 'darwin':

@@ -1,29 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RECORD_SPLIT_KEY, SIDEBAR_KEY } from '@/services/storage';
+import { RECORD_SPLIT_KEY } from '@/services/storage';
 
 import { useUiStore } from './uiStore';
 
-describe('uiStore 侧栏折叠状态', () => {
+describe('uiStore 记录页两栏比例', () => {
   beforeEach(() => {
     localStorage.clear();
-    useUiStore.setState({ sidebarCollapsed: false, sidebarOpen: false });
-  });
-
-  it('切换折叠并把结果写进本地存储', () => {
-    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
-    useUiStore.getState().toggleSidebarCollapsed();
-    expect(useUiStore.getState().sidebarCollapsed).toBe(true);
-    expect(JSON.parse(localStorage.getItem(SIDEBAR_KEY) ?? '{}')).toEqual({
-      collapsed: true,
-    });
-    useUiStore.getState().toggleSidebarCollapsed();
-    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+    useUiStore.setState({ recordSplit: 0.5, settingsOpen: false });
   });
 
   it('两栏比例被夹在 28%–72%，停下来才写本地存储', () => {
     vi.useFakeTimers();
-    useUiStore.setState({ recordSplit: 0.5 });
 
     useUiStore.getState().setRecordSplit(0.9);
     expect(useUiStore.getState().recordSplit).toBe(0.72);
@@ -37,10 +25,11 @@ describe('uiStore 侧栏折叠状态', () => {
     vi.useRealTimers();
   });
 
-  it('折叠与抽屉是两个独立状态', () => {
-    useUiStore.getState().toggleSidebarCollapsed();
-    useUiStore.getState().openSidebar();
-    expect(useUiStore.getState().sidebarOpen).toBe(true);
-    expect(useUiStore.getState().sidebarCollapsed).toBe(true);
+  it('偏好设置弹窗只有开与关两个状态', () => {
+    useUiStore.getState().openSettings();
+    expect(useUiStore.getState().settingsOpen).toBe(true);
+
+    useUiStore.getState().closeSettings();
+    expect(useUiStore.getState().settingsOpen).toBe(false);
   });
 });

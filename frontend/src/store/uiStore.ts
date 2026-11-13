@@ -4,7 +4,6 @@ import {
   APPEARANCE_KEY,
   readStoredObject,
   RECORD_SPLIT_KEY,
-  SIDEBAR_KEY,
   writeStored,
 } from '@/services/storage';
 
@@ -14,11 +13,6 @@ export type Appearance = 'system' | 'light' | 'dark';
 export type Notice = { id: number; message: string; tone: NoticeTone };
 
 type UiState = {
-  // 抽屉：只在小窗口（≤680px）有意义的覆盖层显隐。
-  sidebarOpen: boolean;
-  // 折叠：桌面端把侧栏移出布局，顶栏接管窗口左上角。
-  // 两种形态的按钮职责不同，不能合成同一个状态。
-  sidebarCollapsed: boolean;
   settingsOpen: boolean;
   // 记录页两栏的宽度比例（0.28–0.72）：太窄一边就放不下栏头控件。
   recordSplit: number;
@@ -27,10 +21,6 @@ type UiState = {
   // 底部胶囊的圆内闪示：窗口马上消失，不用 Toast，只闪 Check/X。
   overlayFlash: 'success' | 'error' | '';
   appearance: Appearance;
-  openSidebar: () => void;
-  closeSidebar: () => void;
-  toggleSidebar: () => void;
-  toggleSidebarCollapsed: () => void;
   openSettings: () => void;
   closeSettings: () => void;
   setRecordSplit: (split: number) => void;
@@ -56,10 +46,6 @@ function clampSplit(split: number) {
 let overlayFlashTimer: number | undefined;
 
 export const useUiStore = create<UiState>()((set) => ({
-  sidebarOpen: false,
-  sidebarCollapsed: readStoredObject<{ collapsed: boolean }>(SIDEBAR_KEY, {
-    collapsed: false,
-  }).collapsed,
   settingsOpen: false,
   recordSplit: clampSplit(
     readStoredObject<{ split: number }>(RECORD_SPLIT_KEY, { split: 0.5 }).split,
@@ -70,17 +56,7 @@ export const useUiStore = create<UiState>()((set) => ({
   appearance: readStoredObject<{ appearance: Appearance }>(APPEARANCE_KEY, {
     appearance: 'system',
   }).appearance,
-  openSidebar: () => set({ sidebarOpen: true }),
-  closeSidebar: () => set({ sidebarOpen: false }),
-  toggleSidebar: () =>
-    set((current) => ({ sidebarOpen: !current.sidebarOpen })),
-  toggleSidebarCollapsed: () =>
-    set((current) => {
-      const collapsed = !current.sidebarCollapsed;
-      writeStored(SIDEBAR_KEY, { collapsed });
-      return { sidebarCollapsed: collapsed };
-    }),
-  openSettings: () => set({ settingsOpen: true, sidebarOpen: false }),
+  openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
   setRecordSplit: (split) => {
     const next = clampSplit(split);

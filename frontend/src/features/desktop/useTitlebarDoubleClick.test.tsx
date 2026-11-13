@@ -10,8 +10,8 @@ vi.mock('@/services/bridge', () => ({
   toggleMaximiseWindow: vi.fn(() => Promise.resolve()),
 }));
 
-// 顶带、侧栏头部和窗口按钮共用同一个处理函数，用一个小夹具
-// 覆盖三种目标：空白处、普通按钮、窗口按钮容器。
+// 顶带和窗口按钮共用同一个处理函数，用一个小夹具覆盖三种目标：
+// 空白处、普通按钮、窗口按钮容器。
 function Band({ enabled }: { enabled?: boolean }) {
   const onDoubleClick = useTitlebarDoubleClick(enabled);
   return (

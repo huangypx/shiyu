@@ -1,6 +1,5 @@
-/* 记录页是整屏双栏：左栏写原文、右栏读整理后的文字。
-   两栏铺满内容区，滚动只发生在文本域和结果正文里，
-   所以栏头、栏脚始终可见，页面本身不滚动。 */
+/* 记录页铺满内容区，不再套卡片：两栏直接落在内容面上，
+   靠栏头、栏脚的留白和中间的 1px 分隔线划分区域。 */
 .workspace {
   position: relative;
   display: grid;
@@ -9,12 +8,6 @@
   grid-template-columns: var(--split-left, 50%) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  /* 工作区是一张卡片：外层页面留出 16px 外边距，卡片本身带边框与圆角，
-     两栏因此不会再贴着侧栏、顶带和窗口边缘。 */
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-lg);
-  background: var(--app-surface);
-  box-shadow: var(--app-shadow-card);
   overflow: hidden;
 }
 
@@ -29,7 +22,7 @@
   overflow: hidden;
 }
 
-/* 两栏共用同一张白纸，中间的竖线由 .splitter 画（它还要负责拖动）。 */
+/* 两栏共用同一块内容面，中间的竖线由 .splitter 画（它还要负责拖动）。 */
 .result {
   min-width: 0;
 }
@@ -74,25 +67,23 @@
   outline: none;
 }
 
+/* 栏头只在顶部留白，不再有卡片式的下边框；两栏的栏头同高，
+   标题和右侧控件才会在同一基线上。 */
 .head {
   display: flex;
   grid-row: 1;
   align-items: center;
   gap: 8px 10px;
-  /* 两栏栏头必须在同一条线上：左栏的录音按钮（32px）比右栏的下拉框
-     （24px）高，按 32 + 上下 12 的内边距 + 1px 下边框定高，矮的一侧居中。 */
-  min-height: 57px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--app-border);
+  min-height: 64px;
+  padding: 0 clamp(18px, 3.6vw, 52px);
 }
 
-/* 欢迎区去掉之后，栏头标题就是这一页的标题：
-   比正文大一档，但不做展示级大标题。 */
+/* 标题是这一页最响的文字：比正文大一档，但不做展示级大标题。 */
 .title {
   flex: none;
   margin: 0;
   color: var(--app-ink);
-  font-size: 15px;
+  font-size: clamp(17px, 1.55vw, 21px);
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -153,9 +144,9 @@
 }
 
 .textarea textarea {
-  padding: 16px;
+  padding: 8px clamp(18px, 3.6vw, 52px) 16px;
   color: var(--app-ink);
-  font-size: 13px;
+  font-size: clamp(13px, 1.1vw, 15px);
   line-height: 1.75;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -174,17 +165,16 @@
   flex: 1;
 }
 
+/* 栏脚只放字数和操作，不再画卡片式的上边框；两栏的栏脚同高，
+   右栏没有结果时也不会和左栏错层。 */
 .foot {
   display: flex;
   flex-wrap: wrap;
   grid-row: 3;
   align-items: center;
   gap: 8px;
-  /* 右栏没有结果时栏脚只剩一条横线，高度必须和左栏一致，
-     两栏底部才对得齐；左栏的「整理文字」是 size 2 按钮，按它定高。 */
   min-height: 52px;
-  padding: 10px 16px;
-  border-top: 1px solid var(--app-border);
+  padding: 6px clamp(18px, 3.6vw, 52px) clamp(16px, 2.2vw, 26px);
 }
 
 .count {
@@ -225,15 +215,16 @@
 @media (max-width: 680px) {
   .head {
     gap: 6px 8px;
-    padding: 8px 12px;
+    min-height: 56px;
+    padding: 0 16px;
   }
 
   .foot {
-    padding: 8px 12px;
+    padding: 6px 16px 16px;
   }
 
   .textarea textarea {
-    padding: 12px;
+    padding: 8px 16px 12px;
   }
 
   .headSelect,

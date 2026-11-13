@@ -78,7 +78,7 @@ button {
   *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    /* 延时也要清掉：侧栏折叠和顶带让位都靠 delay 串顺序，
+    /* 延时也要清掉：入场动画和过渡都靠 delay 串顺序，
        只清时长会留下「先隐身后等待」的空档。 */
     animation-delay: 0.001ms !important;
     transition-duration: 0.001ms !important;
