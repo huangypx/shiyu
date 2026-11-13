@@ -16,6 +16,7 @@ function initialRuntime(): DesktopState {
     restoreClipboard: DEFAULT_DESKTOP_SETTINGS.restoreClipboard,
     canInjectText: false,
     bubbleHidden: false,
+    closeRequested: false,
     platform,
     backdrop: defaultBackdrop(platform),
   };

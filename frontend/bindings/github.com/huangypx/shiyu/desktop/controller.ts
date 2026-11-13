@@ -81,6 +81,22 @@ export function Quit(): $CancellablePromise<void> {
 }
 
 /**
+ * RequestClose 统一处理系统关闭事件和自绘标题栏的关闭按钮。
+ * 托盘常驻，关闭主窗口不等于退出：默认弹出确认框让用户选择。
+ */
+export function RequestClose(): $CancellablePromise<void> {
+    return $Call.ByID(3465681613);
+}
+
+/**
+ * ResolveClose 先保存用户勾选的偏好，写入失败时保留弹窗供重试。
+ * action 为 cancel/background/quit；remember 时把选择写回 CloseAction。
+ */
+export function ResolveClose(action: string, remember: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1030999254, action, remember);
+}
+
+/**
  * SaveBubblePosition 持久化用户放下浮动圆圈的位置。渲染层
  * 会在拖拽结束时上报；控制器在窗口隐藏或应用退出时也会
  * 调用它，因为拖拽可能在没有干净 mouse-up 事件的情况下
@@ -128,6 +144,15 @@ export function ShowMainWindow(): $CancellablePromise<void> {
 }
 
 /**
+ * TakeRecordingHotkeys 让第一次按键可以先于前端订阅到达，多次通知只领取一次。
+ */
+export function TakeRecordingHotkeys(): $CancellablePromise<$models.RecordingHotkey[]> {
+    return $Call.ByID(2271970563).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * ToggleMaximiseWindow 支撑 Windows/Linux 的自绘标题栏按钮。
  */
 export function ToggleMaximiseWindow(): $CancellablePromise<void> {
@@ -140,3 +165,5 @@ export function ToggleMode(): $CancellablePromise<void> {
 
 // Private type creation functions
 const $$createType0 = $models.State.createFrom;
+const $$createType1 = $models.RecordingHotkey.createFrom;
+const $$createType2 = $Create.Array($$createType1);

@@ -86,6 +86,8 @@ export type DesktopState = {
   canInjectText: boolean;
   // bubbleHidden 表示只剩托盘：设置开关与托盘菜单都读它判断可见性。
   bubbleHidden: boolean;
+  // closeRequested 表示宿主正在显示关闭确认框。
+  closeRequested: boolean;
   platform: Platform;
   backdrop: Backdrop;
 };

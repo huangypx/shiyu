@@ -507,6 +507,7 @@ export async function loadDesktopState(): Promise<DesktopState | undefined> {
     restoreClipboard: state.restoreClipboard,
     canInjectText: state.canInjectText,
     bubbleHidden: state.bubbleHidden,
+    closeRequested: state.closeRequested,
     platform: state.platform as Platform,
     backdrop: state.backdrop as Backdrop,
   };
@@ -538,6 +539,19 @@ export function setSessionStatus(status: string) {
 
 export function quitApp() {
   return desktopOnly(() => Controller.Quit());
+}
+
+// requestClose 请求关闭主窗口：默认弹出确认框，已记住偏好时直接执行。
+export function requestClose() {
+  return desktopOnly(() => Controller.RequestClose());
+}
+
+// resolveWindowClose 提交关闭确认框的选择；remember 时写回 CloseAction。
+export function resolveWindowClose(
+  action: 'background' | 'quit' | 'cancel',
+  remember: boolean,
+) {
+  return desktopOnly(() => Controller.ResolveClose(action, remember));
 }
 
 export function toggleDesktopMode() {
@@ -596,9 +610,27 @@ export function configureHotkey(hotkey: string) {
   return desktopOnly(() => Controller.ConfigureHotkey(hotkey));
 }
 
-export function subscribeDesktopHotkey(callback: () => void) {
+export function subscribeDesktopHotkey(
+  callback: (mode: DesktopState['mode'], target?: string) => void,
+) {
   if (!isDesktop()) return () => undefined;
-  return Events.On('desktop:hotkey', () => callback());
+  let disposed = false;
+  const drain = async () => {
+    const keys = await Controller.TakeRecordingHotkeys();
+    if (disposed) return;
+    for (const key of keys) {
+      callback(key.mode as DesktopState['mode'], key.target);
+    }
+  };
+  // 订阅前先领取一次：全局热键可能先于前端挂载到达。
+  void drain().catch(() => undefined);
+  const unsubscribe = Events.On('desktop:hotkey', () => {
+    void drain().catch(() => undefined);
+  });
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
 }
 
 export function subscribeDesktopSettings(callback: () => void) {

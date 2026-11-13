@@ -362,6 +362,13 @@ export class DesktopConfig {
     "bubbleHidden"?: boolean;
 
     /**
+     * CloseAction 决定关闭主窗口时的行为：ask 每次询问、background
+     * 后台运行、quit 直接退出。唯一写入路径是关闭确认框 ResolveClose；
+     * SaveDesktopConfig 会像 BubbleHidden 一样兜底保留，面板保存不重置。
+     */
+    "closeAction"?: string;
+
+    /**
      * HistoryRetentionDays 为 0 表示永久保留；大于 0 时在启动阶段
      * 删除更早的记录。用天数而不是条数：SQLite 里按时间裁剪更直观，
      * 也不依赖用户理解「第 N 条之后会消失」。

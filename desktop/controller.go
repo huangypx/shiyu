@@ -37,6 +37,10 @@ const (
 	// 与边缘留出一点呼吸空间。
 	bubbleRightInset  = 28
 	bubbleBottomInset = 56
+
+	// focusSettleDelay 失焦后稍等再复核，焦点短暂交接（如弹窗、
+	// 子控件）不应把主窗口误收成悬浮球。
+	focusSettleDelay = 250 * time.Millisecond
 )
 
 // State 刻意保持精简且易于 JSON 序列化：原生控制器掌管真实窗口，
@@ -52,6 +56,8 @@ type State struct {
 	CanInjectText    bool   `json:"canInjectText"`
 	// BubbleHidden 表示悬浮球已隐藏、只剩托盘；设置开关读它判断可见性。
 	BubbleHidden bool `json:"bubbleHidden"`
+	// CloseRequested 表示关闭确认框正在显示，前端据此弹出 CloseDialog。
+	CloseRequested bool `json:"closeRequested"`
 	// Platform 和 Backdrop 让 React 外壳选择标题栏尺寸和画布样式；
 	// Backdrop 只是 CSS 提示，不再安装原生材质视图。
 	Platform string `json:"platform"`
@@ -86,6 +92,21 @@ type Controller struct {
 	tray             *tray
 	sessionStatus    string
 	overlayHideTimer *time.Timer
+	// pendingHotkeys 缓存先于前端订阅到达的全局热键，TakeRecordingHotkeys
+	// 领取后清空，保证第一次按键不丢、多次通知只触发一次。
+	pendingHotkeys []RecordingHotkey
+	// closePending 表示关闭确认框正在显示；closeMu 串行化关闭流程。
+	closePending bool
+	closeMu      sync.Mutex
+	// quitting 表示正在真正退出；WindowClosing 钩子据此放行，不弹确认框。
+	quitting bool
+}
+
+// RecordingHotkey 是一次全局热键的快照：模式决定前端投递方式，
+// Target 是按键瞬间的粘贴目标，随键入队供前端领取。
+type RecordingHotkey struct {
+	Mode   string `json:"mode"`
+	Target string `json:"target"`
 }
 
 type point struct {
@@ -119,6 +140,25 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 	c.tray = newTray(c)
 
 	if c.window != nil {
+		// 失焦自动收起：主窗口不在前台时收成悬浮球，让录音指示留在屏上。
+		lostFocus := events.Common.WindowLostFocus
+		if runtime.GOOS == "windows" {
+			// 子控件交接键盘焦点也会触发失焦，这里只关心顶层窗口失活。
+			lostFocus = events.Windows.WindowInactive
+		}
+		c.window.OnWindowEvent(lostFocus, func(*application.WindowEvent) {
+			c.scheduleBackgroundCheck()
+		})
+		// 系统关闭按钮先交给确认框，不直接退出（托盘常驻）。
+		c.window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			c.mu.RLock()
+			quitting := c.quitting
+			c.mu.RUnlock()
+			if !quitting {
+				event.Cancel()
+				go func() { _ = c.RequestClose() }()
+			}
+		})
 		// NativeWindow() 要等平台窗口真正创建后才可用。运行时
 		// 就绪后按当前模式补一次 chrome，覆盖「以球启动」和
 		// 首次显示时窗口尚未创建的情况。
@@ -141,6 +181,7 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 			if c.app != nil && c.app.GetDesktopConfig().BubbleHidden {
 				c.window.Hide()
 			}
+			c.scheduleBackgroundCheck()
 		})
 	}
 
@@ -189,6 +230,7 @@ func (c *Controller) GetState() State {
 	mode := c.mode
 	registration := c.hotkey
 	reason := c.reason
+	closePending := c.closePending
 	c.mu.RUnlock()
 
 	var cfg backend.DesktopConfig
@@ -203,6 +245,7 @@ func (c *Controller) GetState() State {
 		RestoreClipboard: cfg.RestoreClipboard,
 		CanInjectText:    canPasteCurrentCursor(),
 		BubbleHidden:     cfg.BubbleHidden,
+		CloseRequested:   closePending,
 		Platform:         runtime.GOOS,
 		Backdrop:         platformBackdropKind(),
 	}
@@ -768,15 +811,51 @@ func (c *Controller) emitSettings() {
 	}
 }
 
-func (c *Controller) emitHotkey() {
+// enqueueHotkey 记录一次全局热键并通知前端领取。模式与粘贴目标随键
+// 一起入队，前端订阅前的第一次按键不会丢。
+func (c *Controller) enqueueHotkey(mode, target string) {
+	c.mu.Lock()
+	c.pendingHotkeys = append(c.pendingHotkeys, RecordingHotkey{Mode: mode, Target: target})
+	c.mu.Unlock()
 	if c.desktop != nil {
 		c.desktop.Event.Emit("desktop:hotkey")
+	}
+}
+
+// TakeRecordingHotkeys 让第一次按键可以先于前端订阅到达，多次通知只领取一次。
+func (c *Controller) TakeRecordingHotkeys() []RecordingHotkey {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keys := c.pendingHotkeys
+	c.pendingHotkeys = nil
+	return keys
+}
+
+// scheduleBackgroundCheck 失焦后稍等再复核，避免焦点短暂交接误收起。
+func (c *Controller) scheduleBackgroundCheck() {
+	time.AfterFunc(focusSettleDelay, c.collapseInactiveMain)
+}
+
+// collapseInactiveMain 主窗口不在前台时收成悬浮球，让录音指示留在屏上；
+// 隐藏/胶囊/动画途中不干预。
+func (c *Controller) collapseInactiveMain() {
+	c.mu.RLock()
+	eligible := c.started && c.mode == ModeMain && !c.transitioning
+	c.mu.RUnlock()
+	if !eligible || c.window == nil {
+		return
+	}
+	if c.window.IsVisible() && !mainWindowInForeground(c.window) {
+		_ = c.SetMode(ModeBubble)
 	}
 }
 
 // Quit 通过 Wails 的应用管理器退出桌面进程。无边框窗口隐藏了
 // 原生标题栏关闭按钮，因此需要暴露这个方法。
 func (c *Controller) Quit() {
+	c.mu.Lock()
+	c.quitting = true
+	c.mu.Unlock()
 	if c.desktop != nil {
 		c.desktop.Quit()
 	}
@@ -864,7 +943,8 @@ func (c *Controller) refreshHotkey() {
 		// 在 Wails 窗口收到任何结果事件前，先记下当时
 		// 拥有焦点的应用；自动粘贴正是靠它回到发起
 		// 快捷键的编辑器或聊天应用。
-		if target := activeWindowID(); target != "" {
+		target := activeWindowID()
+		if target != "" {
 			c.mu.Lock()
 			c.targetWindow = target
 			c.mu.Unlock()
@@ -876,18 +956,17 @@ func (c *Controller) refreshHotkey() {
 		switch {
 		case mode == ModeOverlay && c.window != nil && c.window.IsVisible():
 			// 胶囊已在屏上：再按热键只结束录音，不重建窗口、不抢焦点。
-			c.emitHotkey()
 		case hidden:
 			// 隐藏态叫出底部胶囊，绝不 Focus，保住粘贴目标是原前台应用。
 			c.showOverlay()
-			c.emitHotkey()
 		default:
 			if c.window != nil {
 				c.showWindow()
 				c.window.Focus()
 			}
-			c.emitHotkey()
 		}
+		// 入队而非直接广播：前端订阅前的第一次按键也能被领取。
+		c.enqueueHotkey(mode, target)
 	})
 	c.mu.Lock()
 	defer c.mu.Unlock()

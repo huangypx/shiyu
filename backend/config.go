@@ -146,6 +146,10 @@ type DesktopConfig struct {
 	// 会像 BubblePosition 一样兜底保留它，设置面板保存不会重置隐藏态。
 	// 用 bool 零值天然兼容旧配置，configVersion 保持 2 不变。
 	BubbleHidden bool `json:"bubbleHidden,omitempty"`
+	// CloseAction 决定关闭主窗口时的行为：ask 每次询问、background
+	// 后台运行、quit 直接退出。唯一写入路径是关闭确认框 ResolveClose；
+	// SaveDesktopConfig 会像 BubbleHidden 一样兜底保留，面板保存不重置。
+	CloseAction string `json:"closeAction,omitempty"`
 	// HistoryRetentionDays 为 0 表示永久保留；大于 0 时在启动阶段
 	// 删除更早的记录。用天数而不是条数：SQLite 里按时间裁剪更直观，
 	// 也不依赖用户理解「第 N 条之后会消失」。
@@ -195,6 +199,7 @@ func DefaultConfig() Config {
 			KeepBubbleOnTop:      true,
 			ShowResultPreview:    true,
 			RestoreClipboard:     true,
+			CloseAction:          "ask",
 			HistoryRetentionDays: 0,
 		},
 	}

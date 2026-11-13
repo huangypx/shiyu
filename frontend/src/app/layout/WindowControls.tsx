@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import {
   isWindowMaximised,
   minimiseWindow,
-  quitApp,
+  requestClose,
   toggleMaximiseWindow,
 } from '@/services/bridge';
 import type { Platform } from '@/types/models';
@@ -142,7 +142,7 @@ export default function WindowControls({ platform }: Props) {
         className={`${styles.control} ${styles.close}`}
         aria-label="关闭拾语"
         title="关闭拾语"
-        onClick={() => void quitApp()}
+        onClick={() => void requestClose()}
       >
         <CloseGlyph />
       </button>

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   isWindowMaximised,
   minimiseWindow,
-  quitApp,
+  requestClose,
   toggleMaximiseWindow,
 } from '@/services/bridge';
 
@@ -14,7 +14,7 @@ import WindowControls from './WindowControls';
 vi.mock('@/services/bridge', () => ({
   isWindowMaximised: vi.fn(() => Promise.resolve(false)),
   minimiseWindow: vi.fn(() => Promise.resolve()),
-  quitApp: vi.fn(() => Promise.resolve()),
+  requestClose: vi.fn(() => Promise.resolve()),
   toggleMaximiseWindow: vi.fn(() => Promise.resolve()),
 }));
 
@@ -58,7 +58,7 @@ describe('WindowControls', () => {
     expect(toggleMaximiseWindow).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: '关闭拾语' }));
-    expect(quitApp).toHaveBeenCalledTimes(1);
+    expect(requestClose).toHaveBeenCalledTimes(1);
   });
 
   it('窗口已最大化时按钮切成还原', async () => {

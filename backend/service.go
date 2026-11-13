@@ -234,6 +234,11 @@ func (a *App) SaveDesktopConfig(cfg DesktopConfig) error {
 	// 设置面板回传的配置不含该字段，这里无条件沿用已保存值，
 	// 否则每次保存桌面偏好都会把隐藏态重置成 false。
 	cfg.BubbleHidden = a.config.Desktop.BubbleHidden
+	// 关闭行为的唯一写入路径是关闭确认框 ResolveClose；面板回传
+	// 不含该字段时沿用已保存值，避免保存桌面偏好重置关闭行为。
+	if cfg.CloseAction == "" {
+		cfg.CloseAction = a.config.Desktop.CloseAction
+	}
 	updated := a.config
 	updated.Desktop = cfg
 	updated.applyDefaults()

@@ -5,6 +5,7 @@ import BubbleRoute from '@/app/layout/BubbleRoute';
 import { router } from '@/app/router';
 import { useSessionStatusBridge } from '@/app/useSessionStatusBridge';
 import { useCallsStore } from '@/features/calls/callsStore';
+import CloseDialog from '@/features/desktop/CloseDialog';
 import OverlayRoute from '@/features/desktop/OverlayRoute';
 import { useAppShortcuts } from '@/features/desktop/useAppShortcuts';
 import { useDesktopBridge } from '@/features/desktop/useDesktopBridge';
@@ -17,6 +18,9 @@ import { useDesktopStore } from '@/store/desktopStore';
 
 export default function App() {
   const mode = useDesktopStore((state) => state.runtime.mode);
+  const closeRequested = useDesktopStore(
+    (state) => state.runtime.closeRequested,
+  );
   const { toggleRecording } = useRecordingActions();
 
   useDesktopBridge();
@@ -49,6 +53,7 @@ export default function App() {
         <RouterProvider router={router} />
       )}
       <WindowTransition />
+      {closeRequested && <CloseDialog />}
     </>
   );
 }

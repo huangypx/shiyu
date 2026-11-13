@@ -6,6 +6,35 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * RecordingHotkey 是一次全局热键的快照：模式决定前端投递方式，
+ * Target 是按键瞬间的粘贴目标，随键入队供前端领取。
+ */
+export class RecordingHotkey {
+    "mode": string;
+    "target": string;
+
+    /** Creates a new RecordingHotkey instance. */
+    constructor($$source: Partial<RecordingHotkey> = {}) {
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("target" in $$source)) {
+            this["target"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingHotkey instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingHotkey {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingHotkey($$parsedSource as Partial<RecordingHotkey>);
+    }
+}
+
+/**
  * State 刻意保持精简且易于 JSON 序列化：原生控制器掌管真实窗口，
  * React 外壳只管自己的视觉状态。
  */
@@ -23,6 +52,11 @@ export class State {
      * BubbleHidden 表示悬浮球已隐藏、只剩托盘；设置开关读它判断可见性。
      */
     "bubbleHidden": boolean;
+
+    /**
+     * CloseRequested 表示关闭确认框正在显示，前端据此弹出 CloseDialog。
+     */
+    "closeRequested": boolean;
 
     /**
      * Platform 和 Backdrop 让 React 外壳选择标题栏尺寸和画布样式；
@@ -56,6 +90,9 @@ export class State {
         }
         if (!("bubbleHidden" in $$source)) {
             this["bubbleHidden"] = false;
+        }
+        if (!("closeRequested" in $$source)) {
+            this["closeRequested"] = false;
         }
         if (!("platform" in $$source)) {
             this["platform"] = "";
