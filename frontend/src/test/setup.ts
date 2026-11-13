@@ -24,6 +24,11 @@ if (!globalThis.ResizeObserver) {
   };
 }
 
+// jsdom 没有 scrollIntoView：Radix 的 Select 打开菜单时要把高亮项滚进视口。
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => undefined;
+}
+
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
   Element.prototype.setPointerCapture = () => undefined;

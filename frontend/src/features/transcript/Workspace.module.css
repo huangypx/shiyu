@@ -1,0 +1,243 @@
+/* 记录页是整屏双栏：左栏写原文、右栏读整理后的文字。
+   两栏铺满内容区，滚动只发生在文本域和结果正文里，
+   所以栏头、栏脚始终可见，页面本身不滚动。 */
+.workspace {
+  position: relative;
+  display: grid;
+  /* 左栏宽度由 --split-left 决定（页面把比例写成百分比），右栏吃掉剩余宽度；
+     两栏之间的竖线由 .splitter 画，拖动它就是调整这个百分比。 */
+  grid-template-columns: var(--split-left, 50%) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  /* 工作区是一张卡片：外层页面留出 16px 外边距，卡片本身带边框与圆角，
+     两栏因此不会再贴着侧栏、顶带和窗口边缘。 */
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-card);
+  overflow: hidden;
+}
+
+/* 每栏三行：栏头、正文、栏脚。调用明细只在历史详情与调用记录页
+   展示，记录页不再插一条概要，正文能多出一行的高度。
+   正文用 minmax(0, 1fr) 吃掉剩余高度，长文本才不会把栏脚顶出视口。 */
+.column {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 两栏共用同一张白纸，中间的竖线由 .splitter 画（它还要负责拖动）。 */
+.result {
+  min-width: 0;
+}
+
+/* 分隔线：1px 的线放在 11px 的命中区正中，指针不用像素级瞄准；
+   悬停、聚焦与拖动时线变粗并用强调色，提示这里可以拖。 */
+.splitter {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  left: var(--split-left, 50%);
+  width: 11px;
+  padding: 0;
+  border: 0;
+  transform: translateX(-50%);
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.splitter::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--app-border);
+  transition:
+    width 120ms ease,
+    background-color 120ms ease;
+}
+
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter[data-dragging='true']::after {
+  width: 2px;
+  background: var(--app-accent);
+}
+
+.splitter:focus-visible {
+  outline: none;
+}
+
+.head {
+  display: flex;
+  grid-row: 1;
+  align-items: center;
+  gap: 8px 10px;
+  /* 两栏栏头必须在同一条线上：左栏的录音按钮（32px）比右栏的下拉框
+     （24px）高，按 32 + 上下 12 的内边距 + 1px 下边框定高，矮的一侧居中。 */
+  min-height: 57px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+/* 欢迎区去掉之后，栏头标题就是这一页的标题：
+   比正文大一档，但不做展示级大标题。 */
+.title {
+  flex: none;
+  margin: 0;
+  color: var(--app-ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* 栏头右侧的控件整组占住剩余宽度，放不下时在自己内部换行：
+   录音中控件会展开波形与状态，让这组控件折行比把标题挤出去更像样，
+   标题因此始终留在第一行。 */
+.headActions {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+/* 栏头下拉框：只占一行宽度，值太长就省略，完整配置挂在触发框的 title 上。 */
+.headSelect {
+  min-width: 0;
+  max-width: 186px;
+}
+
+.modelSelect {
+  max-width: 210px;
+}
+
+.selectText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  display: flex;
+  grid-row: 2;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 文本域铺满正文区：Radix 的默认内边距、边框与圆角都去掉，
+   让它看起来是一块可以写的纸，而不是一张表单。 */
+.textarea {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 焦点框画在整块正文上太重，改成内侧 1px 描边，键盘可见又不喧宾夺主。 */
+.textarea:focus-within {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--app-accent);
+}
+
+.textarea textarea {
+  padding: 16px;
+  color: var(--app-ink);
+  font-size: 13px;
+  line-height: 1.75;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.resultBody {
+  display: flex;
+  grid-row: 2;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 右栏正文也是一整块可写的纸，文本域要撑满正文区，
+   否则一窄条输入框会让右栏忽然塌下去。 */
+.resultBody > .textarea {
+  flex: 1;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  grid-row: 3;
+  align-items: center;
+  gap: 8px;
+  /* 右栏没有结果时栏脚只剩一条横线，高度必须和左栏一致，
+     两栏底部才对得齐；左栏的「整理文字」是 size 2 按钮，按它定高。 */
+  min-height: 52px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--app-border);
+}
+
+.count {
+  color: var(--app-ink-faint);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.footActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* 窄桌面放不下两栏：上下堆叠，竖线跟着转成横线，分隔线不再可拖。 */
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(240px, 1fr) minmax(240px, 1fr);
+  }
+
+  .column {
+    min-height: 240px;
+  }
+
+  .result {
+    border-top: 1px solid var(--app-border);
+  }
+
+  .splitter {
+    display: none;
+  }
+}
+
+/* 移动端收窄内边距，把宽度让给正文与控件。 */
+@media (max-width: 680px) {
+  .head {
+    gap: 6px 8px;
+    padding: 8px 12px;
+  }
+
+  .foot {
+    padding: 8px 12px;
+  }
+
+  .textarea textarea {
+    padding: 12px;
+  }
+
+  .headSelect,
+  .modelSelect {
+    max-width: 132px;
+  }
+}

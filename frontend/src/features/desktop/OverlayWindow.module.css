@@ -8,7 +8,7 @@
   width: 360px;
   height: 72px;
   background: transparent;
-  /* 音量写在外壳上，波形竖条读同一个 --mic-level，与录音卡一致。 */
+  /* 音量写在外壳上，波形竖条读同一个 --mic-level，与记录页录音控件一致。 */
   --mic-level: 0;
 }
 

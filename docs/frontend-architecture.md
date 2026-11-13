@@ -15,8 +15,8 @@ src/
     useFeedback.ts    主窗口 Toast / 浮动窗闪烁的统一出口
   pages/              路由页面：record、history、calls
   features/           按业务能力切分，页面只做组装
-    recorder/         录音入口、波形、录音状态机
-    transcript/       记录卡：原始记录 ⇄ 整理结果两面
+    recorder/         记录页栏头的录音按钮、浮窗波形、录音状态机
+    transcript/       双栏工作台：识别结果 + 转写内容
     history/          历史列表与 notesStore
     calls/            调用记录、调用详情、格式化函数
     settings/         设置弹窗、整理预设编辑（presets.ts 纯函数）与 settingsStore
@@ -27,7 +27,7 @@ src/
   styles/             global.css（reset/平台变量）、theme.css（设计 token）
   types/              models.ts（领域模型与默认值）
   mocks/              浏览器预览用的演示数据
-  lib/                纯函数：错误描述、日期与问候语
+  lib/                纯函数：错误描述、相对时间、快捷键格式化与媒体查询
   test/               Vitest setup
 ```
 
@@ -37,7 +37,7 @@ src/
 
 | 路径 | 页面 |
 | --- | --- |
-| `#/` | 记录页（录音 + 可翻转的记录卡） |
+| `#/` | 记录页（双栏工作台 + 栏头录音） |
 | `#/history` | 历史记录 |
 | `#/calls` | 调用记录 |
 
@@ -51,10 +51,10 @@ src/
 
 | store | 内容 |
 | --- | --- |
-| `store/uiStore` | 侧栏开合、设置弹窗、Toast 队列、外观偏好、浮动窗闪烁 |
-| `store/sessionStore` | Go 会话状态的投影：状态机、处理阶段、转写与整理文本、调用指标；`elapsedMs`/`copied` 是本地呈现字段 |
+| `store/uiStore` | 侧栏开合、记录页两栏比例、设置弹窗、Toast 队列、外观偏好、浮动窗闪烁 |
+| `store/sessionStore` | Go 会话状态的投影：状态机、处理阶段、转写与整理文本、调用指标；`copied`（记录哪一栏刚复制过）是本地呈现字段 |
 | `store/desktopStore` | 窗口模式、平台、backdrop 提示、快捷键注册结果 |
-| `features/settings/settingsStore` | 模型池、整理预设与桌面设置，负责 `hydrate` / `selectPreset` / `selectModel` / `save` |
+| `features/settings/settingsStore` | 模型池、整理预设与桌面设置，负责 `hydrate` / `selectPreset` / `selectModel` / `selectLanguage` / `save` |
 | `features/history/notesStore` | 历史记录，读写 Go 的 SQLite；浏览器预览回落到 localStorage |
 | `features/calls/callsStore` | 调用日志，来自 Go 的会话内存 |
 
@@ -69,7 +69,8 @@ src/
 - 会话状态由 Go 的 `publishSessionState` 写入并广播；前端只在空闲时用 `PublishSession` 提交草稿编辑，录音/整理期间前端写入会被拒绝。
 - 流式转写的增量文本由 Controller 监听 `asr:partial` 并写进唯一会话状态，视图不再直接订阅服务商事件。
 - 取消由 Go 递增会话代号并中断在途 ASR/LLM 请求；音频线程和异步流水线在每个关键点核对代号，过期结果直接丢弃。
-- 记录卡的翻面跟随数据而不是自己记状态：`organized` 有内容就落在「整理结果」一面，被清空（新一次录音、取消、关掉结果预览）就回「原始记录」；用户手动翻面只是一次临时覆盖，下一次数据变化就让它失效。处理中的两段靠 `stage` 区分，界面才能说准是在识别还是在整理。
+- 两栏始终同时挂载，不靠状态切换视图：`organized` 只决定右栏文本域的内容，被清空（取消、新一次录音、从历史打开空记录）就回到占位空态；左栏的 `transcript` 是原文的唯一副本，右栏不复制它。处理中的两段靠 `stage` 区分，界面才能说准是在识别还是在整理。
+- 两栏都是可以直接书写的文本域，没有「编辑」模式开关：右栏的改动通过 `setOrganized` 走与左栏 `setTranscript` 相同的 `PublishSession` 通道落回 Go（只在 idle 时接受）。流式返回期间两栏自动只读，输出完成后自动恢复，避免本地改动被下一段增量覆盖。
 
 ## 服务层
 
@@ -101,7 +102,7 @@ src/
 
 Radix Themes 提供按钮、弹窗、下拉、开关、标签页、输入框与 Toast 之外的全部基础控件；`@radix-ui/react-collapsible` 负责可展开区域，`@radix-ui/react-toast` 负责提示条。
 
-JS 驱动的动效走 `motion`（Framer Motion 的现行包）：记录卡的两面背对背常驻在同一个网格单元里，整张卡一次转 180°，转到一半时才露出另一面，因此不需要 `AnimatePresence` 换面；动效按需加载 `domAnimation`。背面用 `aria-hidden` + `inert` 关在可访问性树和 Tab 之外。悬停、状态色这类单值过渡仍用 CSS `transition`，不必为它引入动效库；`prefers-reduced-motion` 下不做翻转，两面改为淡入淡出。
+记录页不再引入动效库：`motion` 依赖已经移除，两栏常驻、没有换面动画；悬停、状态色、栏目让位这类过渡全部用 CSS `transition`，窗口外壳的入场动画也写在 `AppShell.module.css` 里。`prefers-reduced-motion` 下这些过渡统一快速结束，两栏内容不切换、不重排。
 
 浮动球的主操作放在前端绘制的悬停工具栏里，只有「隐藏悬浮球」「退出拾语」还走 Wails v3 的原生 `ContextMenu`。macOS 的 WebKit 默认只在 key window 更新 hover，`desktop/hover_darwin.go` 用 `NSTrackingActiveAlways` 的 tracking area 把进入/离开转成 `window.__shiyuBubbleHover`，保证应用失焦时工具栏也能出现；鼠标移动时还会把坐标送进 `window.__shiyuBubblePointer`，由页面命中按钮并加 `data-hovered`。工具栏不经过 Radix Portal。
 

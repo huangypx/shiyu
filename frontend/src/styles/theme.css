@@ -42,9 +42,6 @@
   /* 布局 */
   --app-sidebar-width: 236px;
   --app-content-max: 1040px;
-  /* 记录页是单栏阅读宽度：13px 正文在 720px 内一行不会太长，
-     历史与调用列表仍用更宽的 --app-content-max。 */
-  --app-content-narrow: 720px;
   --app-breakpoint-tablet: 900px;
   --app-breakpoint-mobile: 680px;
 }

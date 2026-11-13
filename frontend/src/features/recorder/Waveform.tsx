@@ -13,11 +13,11 @@ type Props = {
   active: boolean;
   processing: boolean;
   arming: boolean;
-  // 底部胶囊把同一排竖条拉开铺满整条宽度；录音卡不传，保持紧凑居中。
+  // 底部胶囊把同一排竖条拉开铺满整条宽度；浮窗小尺寸不传，保持紧凑居中。
   stretch?: boolean;
 };
 
-// 录音电平条：主窗口录音卡片与底部胶囊共用同一套竖条。音量由外层
+// 录音电平条：主窗口录音控件与底部胶囊共用同一套竖条。音量由外层
 // 写入的 --mic-level 驱动，组件本身不订阅音量，避免两处重复采样。
 export default function Waveform({
   active,
@@ -25,11 +25,12 @@ export default function Waveform({
   arming,
   stretch = false,
 }: Props) {
+  const className = [styles.waveform];
+  if (stretch) className.push(styles.stretch);
+
   return (
     <div
-      className={
-        stretch ? `${styles.waveform} ${styles.stretch}` : styles.waveform
-      }
+      className={className.join(' ')}
       data-active={active || undefined}
       data-processing={processing || undefined}
       data-arming={arming || undefined}

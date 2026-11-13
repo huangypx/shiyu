@@ -178,6 +178,20 @@ export const DEFAULT_POLISH_PRESETS: PolishPreset[] = [
 
 export const DEFAULT_ACTIVE_PRESET_ID = 'default';
 
+// 识别语言的下拉选项：设置页与记录页栏头共用这一张表，
+// 两处各写一份，新增语言时迟早会漏掉其中一处。
+export const RECOGNITION_LANGUAGES = [
+  '中文（普通话）',
+  'English',
+  '日本語',
+  '自动识别',
+] as const;
+
+// 栏头只放得下一个词，中文（普通话）这类带说明的取值截到括号前。
+export function shortLanguage(language: string) {
+  return language.split('（')[0];
+}
+
 // 默认模型的字段值与后端 DefaultConfig() 保持一致：首次启动在
 // 后端配置到位之前，界面显示的就是这一份。
 export const DEFAULT_ASR_MODEL: AsrModelConfig = {

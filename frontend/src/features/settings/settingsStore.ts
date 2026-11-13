@@ -17,6 +17,7 @@ import {
   writeStored,
 } from '@/services/storage';
 import {
+  activeAsrModel,
   DEFAULT_DESKTOP_SETTINGS,
   DEFAULT_SETTINGS,
   type DesktopSettings,
@@ -33,6 +34,8 @@ type SettingsState = {
   selectPreset: (id: string) => Promise<void>;
   // 切换当前模型同理：下一次录音就该用新的那一台。
   selectModel: (kind: 'asr' | 'llm', id: string) => Promise<void>;
+  // 识别语言也在记录页栏头直接切换，同样要立刻落盘。
+  selectLanguage: (language: string) => Promise<void>;
   hydrate: () => Promise<void>;
   save: () => Promise<boolean>;
 };
@@ -72,6 +75,28 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       await setActiveModel(kind, id);
     } catch {
       // 同上：预览环境没有后端。
+    }
+  },
+  selectLanguage: async (language) => {
+    const current = get().models;
+    const active = activeAsrModel(current);
+    // 栏头改的是「下一次录音真正使用的语言」：模型自己设了语言就改
+    // 模型上的覆盖值，否则改全局，否则界面显示的和改掉的会是两个字段。
+    const next = active.language
+      ? {
+          ...current,
+          asrModels: current.asrModels.map((model) =>
+            model.id === active.id ? { ...model, language } : model,
+          ),
+        }
+      : { ...current, language };
+    set({ models: next });
+    writeStored(SETTINGS_KEY, next);
+    // 语言没有独立的后端命令，整份模型配置一起保存，与设置页的「保存」同路。
+    try {
+      await saveSettings(next);
+    } catch {
+      // 浏览器预览没有后端；本地副本已经写好。
     }
   },
   // 后端配置是权威来源；浏览器预览返回 undefined，保留本地值。

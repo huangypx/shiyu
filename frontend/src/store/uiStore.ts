@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import {
   APPEARANCE_KEY,
   readStoredObject,
+  RECORD_SPLIT_KEY,
   SIDEBAR_KEY,
   writeStored,
 } from '@/services/storage';
@@ -19,6 +20,8 @@ type UiState = {
   // 两种形态的按钮职责不同，不能合成同一个状态。
   sidebarCollapsed: boolean;
   settingsOpen: boolean;
+  // 记录页两栏的宽度比例（0.28–0.72）：太窄一边就放不下栏头控件。
+  recordSplit: number;
   notice: Notice | null;
   bubbleFlash: 'success' | 'error' | '';
   // 底部胶囊的圆内闪示：窗口马上消失，不用 Toast，只闪 Check/X。
@@ -30,6 +33,7 @@ type UiState = {
   toggleSidebarCollapsed: () => void;
   openSettings: () => void;
   closeSettings: () => void;
+  setRecordSplit: (split: number) => void;
   notify: (message: string, tone?: NoticeTone) => void;
   dismissNotice: () => void;
   flashBubble: (tone: 'success' | 'error') => void;
@@ -40,6 +44,13 @@ type UiState = {
 // 浮动窗口只有 92x92，Toast 会被裁掉，因此提示会退化成
 // 按钮闪烁；主窗口的 Toast 由 Radix Toast 自己管理时长。
 let flashTimer: number | undefined;
+let splitTimer: number | undefined;
+
+// 两栏比例限制在 28%–72%：再窄就有栏头的控件放不下。
+function clampSplit(split: number) {
+  if (!Number.isFinite(split)) return 0.5;
+  return Math.min(0.72, Math.max(0.28, split));
+}
 // 胶囊闪示单独计时：它要在 Go 隐藏窗口前清掉，残留的勾/叉
 // 才不会漏进下一次叫出胶囊时的 idle 圆。
 let overlayFlashTimer: number | undefined;
@@ -50,6 +61,9 @@ export const useUiStore = create<UiState>()((set) => ({
     collapsed: false,
   }).collapsed,
   settingsOpen: false,
+  recordSplit: clampSplit(
+    readStoredObject<{ split: number }>(RECORD_SPLIT_KEY, { split: 0.5 }).split,
+  ),
   notice: null,
   bubbleFlash: '',
   overlayFlash: '',
@@ -68,6 +82,15 @@ export const useUiStore = create<UiState>()((set) => ({
     }),
   openSettings: () => set({ settingsOpen: true, sidebarOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
+  setRecordSplit: (split) => {
+    const next = clampSplit(split);
+    set({ recordSplit: next });
+    // 拖动时每一帧都写 localStorage 会拖慢重排，松手后再落盘。
+    window.clearTimeout(splitTimer);
+    splitTimer = window.setTimeout(() => {
+      writeStored(RECORD_SPLIT_KEY, { split: next });
+    }, 160);
+  },
   notify: (message, tone = 'success') =>
     set({ notice: { id: Date.now(), message, tone } }),
   dismissNotice: () => set({ notice: null }),

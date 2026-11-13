@@ -146,6 +146,40 @@ describe('settingsStore', () => {
     expect(useSettingsStore.getState().models.activeLlmId).toBe('cheap');
   });
 
+  it('切换识别语言时写全局语言，并整份配置落盘', async () => {
+    bridge.saveSettings.mockResolvedValue(undefined);
+
+    await useSettingsStore.getState().selectLanguage('English');
+
+    expect(useSettingsStore.getState().models.language).toBe('English');
+    expect(localStorage.getItem(SETTINGS_KEY)).toContain('"English"');
+    expect(bridge.saveSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('当前模型自己设了语言时，只改模型上的覆盖值', async () => {
+    bridge.saveSettings.mockResolvedValue(undefined);
+    useSettingsStore.setState({
+      models: settings({
+        asrModels: [
+          {
+            ...DEFAULT_SETTINGS.asrModels[0],
+            language: '日本語',
+          },
+        ],
+      }),
+    });
+
+    await useSettingsStore.getState().selectLanguage('English');
+
+    // 模型语言优先于全局，改全局不会影响下一次录音。
+    expect(useSettingsStore.getState().models.asrModels[0].language).toBe(
+      'English',
+    );
+    expect(useSettingsStore.getState().models.language).toBe(
+      DEFAULT_SETTINGS.language,
+    );
+  });
+
   it('保存写回后端，桌面端不可用时返回 false 但仍落盘', async () => {
     bridge.saveSettings.mockResolvedValue(undefined);
     bridge.saveDesktopSettings.mockResolvedValue(undefined);

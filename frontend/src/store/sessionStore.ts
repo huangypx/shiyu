@@ -10,6 +10,9 @@ export type SessionStatus = 'idle' | 'arming' | 'recording' | 'processing';
 // processing 同时覆盖转写与整理两段，界面却必须说清楚正在做什么。
 export type SessionStage = 'transcribe' | 'organize' | null;
 
+// 两栏各自复制：按「复制成功的栏」记一次短暂的勾，另一栏的按钮不会跟着变。
+export type CopyTarget = '' | 'asr' | 'llm';
+
 type SessionState = {
   status: SessionStatus;
   stage: SessionStage;
@@ -21,16 +24,14 @@ type SessionState = {
   // Go 侧的单调版本号，用来丢弃乱序事件。
   revision: number;
   // 仅本窗口使用的呈现状态，不写回 Go。
-  elapsedMs: number;
-  copied: boolean;
+  copied: CopyTarget;
   applySnapshot: (snapshot: SessionSnapshot) => void;
   setStatus: (status: SessionStatus) => void;
   setStage: (stage: SessionStage) => void;
   setTranscript: (transcript: string) => void;
   setOrganized: (organized: string) => void;
   setMetrics: (metrics: CallMetrics) => void;
-  setElapsedMs: (elapsedMs: number) => void;
-  setCopied: (copied: boolean) => void;
+  setCopied: (copied: CopyTarget) => void;
   resetDraft: () => void;
 };
 
@@ -63,8 +64,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   metrics: {},
   stageStartedAt: 0,
   revision: 0,
-  elapsedMs: 0,
-  copied: false,
+  copied: '',
   applySnapshot: (snapshot) =>
     set((current) => {
       if (snapshot.revision < current.revision) return current;
@@ -115,7 +115,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     set({ metrics });
     schedulePublish(get);
   },
-  setElapsedMs: (elapsedMs) => set({ elapsedMs }),
   setCopied: (copied) => set({ copied }),
   resetDraft: () => {
     set({
@@ -124,7 +123,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       metrics: {},
       stage: null,
       stageStartedAt: 0,
-      elapsedMs: 0,
     });
     schedulePublish(get);
   },

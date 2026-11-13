@@ -2,7 +2,12 @@ import { Button, Select, TextField } from '@radix-ui/themes';
 import { Copy, Plus, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { ASRMode, AsrModelConfig, ModelSettings } from '@/types/models';
+import {
+  type ASRMode,
+  type AsrModelConfig,
+  type ModelSettings,
+  RECOGNITION_LANGUAGES,
+} from '@/types/models';
 
 import {
   MAX_MODELS,
@@ -181,12 +186,11 @@ export default function AsrSection({ settings, onChange }: Props) {
                   <Select.Item value="">
                     跟随全局（{settings.language}）
                   </Select.Item>
-                  <Select.Item value="中文（普通话）">
-                    中文（普通话）
-                  </Select.Item>
-                  <Select.Item value="English">English</Select.Item>
-                  <Select.Item value="日本語">日本語</Select.Item>
-                  <Select.Item value="自动识别">自动识别</Select.Item>
+                  {RECOGNITION_LANGUAGES.map((language) => (
+                    <Select.Item key={language} value={language}>
+                      {language}
+                    </Select.Item>
+                  ))}
                 </Select.Content>
               </Select.Root>
             </div>
@@ -261,10 +265,11 @@ export default function AsrSection({ settings, onChange }: Props) {
         >
           <Select.Trigger aria-label="识别语言" />
           <Select.Content>
-            <Select.Item value="中文（普通话）">中文（普通话）</Select.Item>
-            <Select.Item value="English">English</Select.Item>
-            <Select.Item value="日本語">日本語</Select.Item>
-            <Select.Item value="自动识别">自动识别</Select.Item>
+            {RECOGNITION_LANGUAGES.map((language) => (
+              <Select.Item key={language} value={language}>
+                {language}
+              </Select.Item>
+            ))}
           </Select.Content>
         </Select.Root>
       </div>

@@ -1,5 +1,6 @@
 import { Theme } from '@radix-ui/themes';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '@/store/sessionStore';
@@ -15,6 +16,7 @@ vi.mock('@/services/bridge', () => ({
   loadCalls: vi.fn().mockResolvedValue(undefined),
   clearCalls: vi.fn(),
   setActivePreset: vi.fn(),
+  publishSession: vi.fn().mockResolvedValue(undefined),
   subscribeAsrPartial: vi.fn(() => () => undefined),
   subscribeDesktopMicLevel: vi.fn(() => () => undefined),
   cancelDesktopTranscription: vi.fn(),
@@ -22,6 +24,14 @@ vi.mock('@/services/bridge', () => ({
   toggleDesktopRecording: vi.fn(),
   TransferCancelled: class TransferCancelled extends Error {},
 }));
+
+function renderPage() {
+  return render(
+    <Theme>
+      <RecordPage />
+    </Theme>,
+  );
+}
 
 describe('RecordPage', () => {
   beforeEach(() => {
@@ -33,117 +43,84 @@ describe('RecordPage', () => {
       metrics: {},
       stageStartedAt: 0,
       revision: 0,
-      elapsedMs: 0,
-      copied: false,
+      copied: '',
     });
   });
 
-  it('渲染录音入口与记录卡的原始记录一面', () => {
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
+  it('欢迎区与隐私说明都已经去掉', () => {
+    renderPage();
 
     expect(
-      screen.getByRole('heading', { name: '今天想记录什么？' }),
-    ).toBeVisible();
+      screen.queryByRole('heading', { name: '今天想记录什么？' }),
+    ).toBeNull();
+    expect(screen.queryByText(/早上好|下午好|晚上好/)).toBeNull();
+    // 旧版日期胶囊的形式形如「11月13日 周四」。
+    expect(screen.queryByText(/\d+月\d+日/)).toBeNull();
+    expect(screen.queryByText(/内容保存在本机/)).toBeNull();
+    expect(screen.queryByText('准备好了吗')).toBeNull();
+  });
+
+  it('页面直接就是左右两栏，左栏可写、右栏等结果', () => {
+    renderPage();
+
+    expect(screen.getByRole('region', { name: '识别结果' })).toBeVisible();
+    expect(screen.getByRole('region', { name: '转写内容' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: '识别结果' })).toBeVisible();
+    // 右栏也是一块可以直接写的文本域，没有内容时靠占位文案说明。
+    expect(screen.getByRole('textbox', { name: '转写内容' })).toHaveAttribute(
+      'placeholder',
+      '还没有内容',
+    );
+  });
+
+  it('录音开始后按钮变成结束录音，状态文字交给浮窗', () => {
+    renderPage();
     expect(screen.getByRole('button', { name: '开始录音' })).toBeVisible();
-    // 记录卡只有一面在 DOM 里：没有结果时不渲染整理结果。
-    expect(screen.getByRole('region', { name: '原始记录' })).toBeVisible();
-    expect(screen.queryByRole('region', { name: '整理结果' })).toBeNull();
-  });
-
-  it('整理结果落地后卡片翻到整理结果一面', async () => {
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
 
     act(() => {
-      useSessionStore.setState({ transcript: '记一下明天的安排' });
+      useSessionStore.setState({ status: 'recording' });
     });
+
+    expect(screen.getByRole('button', { name: '结束录音' })).toHaveAttribute(
+      'data-state',
+      'recording',
+    );
+    // 波形与「录音中」都在始终可见的浮窗里，主窗口不再重复。
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('在文本域里输入会写进会话状态', async () => {
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.type(
+      screen.getByRole('textbox', { name: '识别结果' }),
+      '记一下明天的安排',
+    );
+
+    expect(useSessionStore.getState().transcript).toBe('记一下明天的安排');
+    expect(screen.getByText('8 字')).toBeVisible();
+  });
+
+  it('整理结果直接落在右栏，不用再翻面', () => {
+    renderPage();
 
     act(() => {
-      useSessionStore.setState({ organized: '## 明天的安排\n- 十点开会' });
+      useSessionStore.setState({
+        transcript: '记一下明天的安排',
+        organized: '## 明天的安排\n- 十点开会',
+      });
     });
 
-    // 翻面先等退出动画结束才换面，新面还要淡入，断言要轮询。
-    await waitFor(
-      () =>
-        expect(screen.getByRole('region', { name: '整理结果' })).toBeVisible(),
-      { timeout: 3000 },
-    );
-    expect(screen.queryByRole('region', { name: '原始记录' })).toBeNull();
-  });
-
-  it('没有原始文本时整理按钮不可用', () => {
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
-
-    expect(screen.getByRole('button', { name: '整理文字' })).toBeDisabled();
-  });
-
-  it('记录卡上可以切换整理预设', () => {
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
-
-    // 选择器显示当前生效预设的名称，默认是内置的「默认整理」。
-    const picker = screen.getByRole('combobox', { name: '整理预设' });
-    expect(picker).toHaveTextContent('默认整理');
-  });
-
-  it('录音中显示结束录音的入口', () => {
-    useSessionStore.setState({ status: 'recording' });
-
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
-
-    expect(screen.getByRole('button', { name: '结束录音' })).toBeVisible();
-  });
-
-  it('开启麦克风期间提供取消入口，并说明还没开始录', () => {
-    useSessionStore.setState({ status: 'arming' });
-
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
-
-    expect(
-      screen.getByRole('button', { name: '取消开启麦克风' }),
-    ).toBeVisible();
-    // 采集未确认时不能出现「正在聆听」，否则用户会提前开口。
-    expect(screen.queryByText('正在聆听')).toBeNull();
-    expect(screen.getByText('开启麦克风')).toBeVisible();
-  });
-
-  it('录音中提供「取消这段转写」，待录音时没有', () => {
-    const { unmount } = render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
-    expect(screen.queryByRole('button', { name: '取消这段转写' })).toBeNull();
-    unmount();
-
-    useSessionStore.setState({ status: 'recording' });
-    render(
-      <Theme>
-        <RecordPage />
-      </Theme>,
-    );
-    expect(screen.getByRole('button', { name: '取消这段转写' })).toBeVisible();
+    expect(screen.getByRole('region', { name: '转写内容' })).toBeVisible();
+    // 整理结果直接写进右栏文本域，落地后就可以直接改字。
+    const result = screen.getByRole('textbox', { name: '转写内容' });
+    expect(result).toHaveValue('## 明天的安排\n- 十点开会');
+    expect(result).not.toHaveAttribute('readonly');
+    expect(screen.getByRole('button', { name: '复制转写内容' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '重新整理' })).toBeVisible();
+    // 两栏左下角都有字数统计：左栏 8 字，右栏按文本域里的原文 15 字。
+    expect(screen.getByText('8 字')).toBeVisible();
+    expect(screen.getByText('15 字')).toBeVisible();
   });
 });

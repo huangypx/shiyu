@@ -12,6 +12,9 @@ export const APPEARANCE_KEY = 'typeless-appearance';
 // 侧栏在桌面端是「折叠/展开」的布局状态，重启后应该保持原样，
 // 否则每次启动都要重新收起一次。
 export const SIDEBAR_KEY = 'typeless-sidebar';
+// 记录页两栏的宽度比例也是布局状态：拖过一次就该记住，
+// 下次打开不用再拖。
+export const RECORD_SPLIT_KEY = 'typeless-record-split';
 
 export function readStoredObject<T extends object>(
   key: string,

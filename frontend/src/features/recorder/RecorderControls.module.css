@@ -1,0 +1,64 @@
+/* 栏头里只有一枚 32px 圆形按钮，不随状态展开，栏头高度因此恒定。
+   波形、耗时与状态文字都交给始终可见的浮窗，主窗口不再重复。 */
+.record {
+  position: relative;
+  display: grid;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--gray-12);
+  color: var(--gray-1);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    transform 120ms ease;
+}
+
+.record:hover {
+  transform: translateY(-1px);
+}
+
+.record:disabled {
+  cursor: progress;
+  background: var(--gray-a4);
+  color: var(--app-ink-soft);
+  transform: none;
+}
+
+/* 录音是唯一用红色的状态：暂停比开始更需要一眼认出来。
+   底色用 --red-9，图标取 Radix 为该色阶配的 --red-contrast。 */
+.record[data-state='recording'] {
+  background: var(--red-9);
+  color: var(--red-contrast);
+}
+
+/* 申请麦克风权限期间给按钮一圈呼吸环：图标仍是麦克风，
+   说明还没开始录，用户不会对着还没生效的麦克风说话。 */
+.record[data-state='arming']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--gray-a7);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: armingPulse 1.4s ease-out infinite;
+}
+
+@keyframes armingPulse {
+  0% {
+    opacity: 0.65;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
