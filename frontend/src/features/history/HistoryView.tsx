@@ -20,6 +20,9 @@ import styles from './HistoryView.module.css';
 
 type Props = {
   notes: Note[];
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  onLoadOlder: () => void;
   onOpen: (note: Note) => void;
   onCopy: (text: string) => Promise<void>;
   onPaste: (text: string) => Promise<void>;
@@ -29,6 +32,9 @@ type Props = {
 
 export default function HistoryView({
   notes,
+  hasOlder,
+  loadingOlder,
+  onLoadOlder,
   onOpen,
   onCopy,
   onPaste,
@@ -52,10 +58,13 @@ export default function HistoryView({
             每次生成的文字都可以重新查看和使用。
           </p>
         </div>
-        <span className={styles.total}>{notes.length} 条记录</span>
+        <span className={styles.total}>
+          {hasOlder ? '已显示 ' : ''}
+          {notes.length} 条记录
+        </span>
       </header>
 
-      {notes.length ? (
+      {notes.length || hasOlder ? (
         <>
           <div className={styles.toolbar}>
             {confirmClear ? (
@@ -96,7 +105,7 @@ export default function HistoryView({
           <div className={styles.list}>
             {notes.map((note) => {
               const expanded = expandedId === note.id;
-              const result = note.organized || note.preview;
+              const result = note.organized || note.transcript || note.preview;
               return (
                 <Collapsible.Root
                   key={note.id}
@@ -122,10 +131,20 @@ export default function HistoryView({
                     <Collapsible.Content>
                       <div className={styles.detail}>
                         <div className={styles.detailHeading}>
-                          <span>整理结果</span>
+                          <span>
+                            {note.organized ? '整理结果' : '转写原文'}
+                          </span>
                           <span>{result.length} 字</span>
                         </div>
                         <div className={styles.detailBody}>{result}</div>
+                        {note.transcript && note.transcript !== result && (
+                          <details className={styles.transcript}>
+                            <summary>转写原文</summary>
+                            <div className={styles.detailBody}>
+                              {note.transcript}
+                            </div>
+                          </details>
+                        )}
                         {note.metrics && (
                           <div className={styles.metrics}>
                             <CallSummary
@@ -197,6 +216,18 @@ export default function HistoryView({
           <strong>还没有记录</strong>
           <p>按下“开始记录”，你的第一条想法会出现在这里。</p>
         </div>
+      )}
+      {hasOlder && (
+        <Button
+          className={styles.older}
+          size="2"
+          variant="soft"
+          color="gray"
+          disabled={loadingOlder}
+          onClick={onLoadOlder}
+        >
+          {loadingOlder ? '正在加载…' : '查看更早的记录'}
+        </Button>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import { useNotesStore } from './notesStore';
 
 const bridge = vi.hoisted(() => ({
   loadHistory: vi.fn(),
+  loadOlderHistory: vi.fn(),
   saveHistory: vi.fn(),
   deleteHistory: vi.fn(),
   clearHistory: vi.fn(),
@@ -36,7 +37,12 @@ describe('notesStore', () => {
       models: DEFAULT_SETTINGS,
       desktop: DEFAULT_DESKTOP_SETTINGS,
     });
-    useNotesStore.setState({ notes: [], hydrated: false });
+    useNotesStore.setState({
+      notes: [],
+      hydrated: false,
+      olderAfter: null,
+      loadingOlder: false,
+    });
   });
 
   it('hydrate 从后端拉取历史', async () => {
@@ -61,6 +67,20 @@ describe('notesStore', () => {
     await Promise.resolve();
     expect(useNotesStore.getState().notes[0].title).toBe('后端标题');
     expect(bridge.saveHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('可从历史页继续读取第一百条以前的全文', async () => {
+    const entries = Array.from({ length: 101 }, (_, index) =>
+      note(String(index)),
+    );
+    bridge.loadHistory.mockResolvedValue(entries);
+    bridge.loadOlderHistory.mockResolvedValue(entries.slice(100));
+    await useNotesStore.getState().hydrate();
+    expect(useNotesStore.getState().notes).toHaveLength(100);
+    await useNotesStore.getState().loadOlder();
+    expect(bridge.loadOlderHistory).toHaveBeenCalledWith(101, entries[99]);
+    expect(useNotesStore.getState().notes[100]).toEqual(entries[100]);
+    expect(useNotesStore.getState().olderAfter).toBeNull();
   });
 
   it('后端不可用时保留本地副本，供下次迁移', async () => {
@@ -102,8 +122,22 @@ describe('notesStore', () => {
     await useNotesStore.getState().hydrate();
 
     expect(bridge.importHistory).toHaveBeenCalledTimes(1);
+    expect(useNotesStore.getState().notes).toEqual(legacy);
     // 导入成功后清空本地副本，避免下次重复导入。
     expect(localStorage.getItem('typeless-notes')).toBeNull();
+  });
+
+  it('预览模式重新打开时可以找回完整原文和整理结果', async () => {
+    const text = '这是一条需要保留的原文。'.repeat(15);
+    useNotesStore.getState().addNote({ text, result: '一、确认时间' });
+    await Promise.resolve();
+    await Promise.resolve();
+    useNotesStore.setState({ notes: [], hydrated: false });
+    await useNotesStore.getState().hydrate();
+    expect(useNotesStore.getState().notes[0]).toMatchObject({
+      transcript: text,
+      organized: '一、确认时间',
+    });
   });
 
   it('后端已有同一批记录时直接清掉本地副本', async () => {

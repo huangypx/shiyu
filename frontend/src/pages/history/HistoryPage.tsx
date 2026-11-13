@@ -9,6 +9,9 @@ import { useSessionStore } from '@/store/sessionStore';
 export default function HistoryPage() {
   const navigate = useNavigate();
   const notes = useNotesStore((state) => state.notes);
+  const hasOlder = useNotesStore((state) => state.olderAfter !== null);
+  const loadingOlder = useNotesStore((state) => state.loadingOlder);
+  const loadOlder = useNotesStore((state) => state.loadOlder);
   const removeNote = useNotesStore((state) => state.removeNote);
   const clearNotes = useNotesStore((state) => state.clearNotes);
   const setTranscript = useSessionStore((state) => state.setTranscript);
@@ -19,6 +22,11 @@ export default function HistoryPage() {
   return (
     <HistoryView
       notes={notes}
+      hasOlder={hasOlder}
+      loadingOlder={loadingOlder}
+      onLoadOlder={() => {
+        void loadOlder().catch(() => feedback('读取历史记录失败', 'error'));
+      }}
       onOpen={(note) => {
         void navigate('/');
         setTranscript(note.transcript || note.preview);

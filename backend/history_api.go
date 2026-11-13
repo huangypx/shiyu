@@ -37,6 +37,17 @@ func (a *App) ListHistory(limit, offset int) ([]HistoryEntry, error) {
 	return store.List(limit, offset)
 }
 
+// ListOlderHistory 支持在主窗口继续查看更早的文本，时间和 ID 来自上一页末项。
+func (a *App) ListOlderHistory(limit int, createdAt, id string) ([]HistoryEntry, error) {
+	a.mu.RLock()
+	store := a.history
+	a.mu.RUnlock()
+	if store == nil {
+		return nil, errors.New("history store is not configured")
+	}
+	return store.list(limit, 0, createdAt, id)
+}
+
 // GetHistory 读取单条历史；已删除时返回 false。
 func (a *App) GetHistory(id string) (HistoryEntry, bool, error) {
 	a.mu.RLock()

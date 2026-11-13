@@ -159,6 +159,15 @@ export function ListHistory(limit: number, offset: number): $CancellablePromise<
 }
 
 /**
+ * ListOlderHistory 支持在主窗口继续查看更早的文本，时间和 ID 来自上一页末项。
+ */
+export function ListOlderHistory(limit: number, createdAt: string, id: string): $CancellablePromise<$models.HistoryEntry[]> {
+    return $Call.ByID(962463437, limit, createdAt, id).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * PolishText 把文本交给已配置的整理模型。请求里的 presetId 为空或
  * 已失效时回落到生效预设，因此界面上删掉的预设不会让调用失败。
  * 返回的记录即使调用失败也描述这次调用，并带上所用预设的名称。

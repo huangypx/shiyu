@@ -200,6 +200,10 @@ func (s *HistoryStore) Save(entry HistoryEntry) (HistoryEntry, error) {
 // List 按时间倒序返回最近的记录。limit 为 0 时使用默认条数，
 // 超过上限按上限截断，避免界面一次拉走整库。
 func (s *HistoryStore) List(limit, offset int) ([]HistoryEntry, error) {
+	return s.list(limit, offset, "", "")
+}
+
+func (s *HistoryStore) list(limit, offset int, beforeTime, beforeID string) ([]HistoryEntry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if limit <= 0 {
@@ -211,9 +215,17 @@ func (s *HistoryStore) List(limit, offset int) ([]HistoryEntry, error) {
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.db.Query(`SELECT id, created_at, title, preview, transcript, organized, language,
+	query := `SELECT id, created_at, title, preview, transcript, organized, language,
 			preset_id, preset_name, asr_model_id, llm_model_id, duration_ms, error
-		FROM records ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+		FROM records`
+	var args []any
+	if beforeID != "" {
+		// 用上一页末项定位，即使同时录入新文本或删除该项也不会漏掉更早的记录。
+		query += " WHERE (created_at, id) < (?, ?)"
+		args = append(args, beforeTime, beforeID)
+	}
+	query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+	rows, err := s.db.Query(query, append(args, limit, offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("query history: %w", err)
 	}

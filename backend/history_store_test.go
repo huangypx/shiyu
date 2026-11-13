@@ -124,6 +124,32 @@ func TestHistoryStoreSaveReplacesCalls(t *testing.T) {
 	}
 }
 
+func TestOlderHistoryAfterDeletedCursorAtSameTime(t *testing.T) {
+	store := newTestHistory(t)
+	app := &App{history: store}
+	created := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	for _, id := range []string{"a", "b", "c"} {
+		if _, err := store.Save(sampleEntry(id, created)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := app.ListHistory(2, 0)
+	if err != nil || len(page) != 2 || page[1].ID != "b" {
+		t.Fatalf("first page = %+v, err = %v", page, err)
+	}
+	cursor := page[1]
+	if err := store.Delete(cursor.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Save(sampleEntry("d", created.Add(time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	older, err := app.ListOlderHistory(2, cursor.CreatedAt.Format(time.RFC3339Nano), cursor.ID)
+	if err != nil || len(older) != 1 || older[0].Transcript != "raw a" {
+		t.Fatalf("older page = %+v, err = %v", older, err)
+	}
+}
+
 func TestHistoryStoreDeleteClearAndCount(t *testing.T) {
 	store := newTestHistory(t)
 	base := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -243,6 +269,11 @@ func TestAppHistoryAPIRequiresStore(t *testing.T) {
 	if err := app.AttachHistory(t.TempDir() + "/history.db"); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := app.history.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	if _, err := app.SaveHistory(sampleEntry("a", time.Now())); err != nil {
 		t.Fatal(err)
 	}

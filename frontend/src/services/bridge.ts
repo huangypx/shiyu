@@ -478,6 +478,19 @@ export async function saveHistory(note: Note, settings: ModelSettings) {
   return toNote(saved);
 }
 
+export async function loadOlderHistory(
+  limit: number,
+  after: Pick<Note, 'createdAt' | 'id'>,
+) {
+  if (!isDesktop()) return undefined;
+  const entries = (await BackendApp.ListOlderHistory(
+    limit,
+    after.createdAt,
+    after.id,
+  )) as unknown as BackendHistoryEntry[];
+  return entries.map(toNote);
+}
+
 export async function deleteHistory(id: string) {
   return desktopOnly(() => BackendApp.DeleteHistory(id));
 }
