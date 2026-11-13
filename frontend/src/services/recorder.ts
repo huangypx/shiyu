@@ -10,7 +10,11 @@ export type WavRecorder = {
   // 采集确认在跑（至少收到过一块音频）之后才 resolve，
   // 调用方据此把界面切成录音态，避免「看着在录其实还没开麦」。
   ready: Promise<void>;
-  stop: () => Promise<Blob>;
+  // AudioContext 的原生采样率；Go 收尾时统一重采样到 16 kHz。
+  sampleRate: number;
+  // 桌面端把 PCM 分片交给后端，不再在本地攒整段音频；
+  // 浏览器预览没有 onChunk，仍返回 WAV Blob。
+  stop: () => Promise<Blob | undefined>;
   cancel: () => void;
 };
 
@@ -18,6 +22,9 @@ export type WavRecorderOptions = {
   // 设备被拔掉或权限被撤销时触发；主动 stop/cancel 不算。
   // 没有它，录音中拔掉麦克风只能等用户手动点结束。
   onEnded?: () => void;
+  // 每块 Int16 单声道 PCM；提供它即进入流式模式，停止时不再
+  // 在内存里拼整段 WAV。
+  onChunk?: (pcm: Int16Array) => void;
 };
 
 // 音量订阅：采集器把归一化后的电平推给界面，
@@ -130,6 +137,7 @@ export async function startWavRecording(
   // ScriptProcessorNode 已废弃，但它是不额外提供 AudioWorklet
   // 模块时，Chromium 和 WebKit 共有的唯一 PCM 采集方式。
   const processor = context.createScriptProcessor(BUFFER_SIZE, 1, 1);
+  const streaming = options.onChunk !== undefined;
   const chunks: Float32Array[] = [];
   let smoothed = 0;
   let disposed = false;
@@ -141,7 +149,8 @@ export async function startWavRecording(
   processor.onaudioprocess = (event) => {
     if (disposed) return;
     const samples = new Float32Array(event.inputBuffer.getChannelData(0));
-    chunks.push(samples);
+    if (streaming) options.onChunk?.(encodePcm16(samples));
+    else chunks.push(samples);
     smoothed = smoothLevel(smoothed, levelFromRms(measureRms(samples)));
     publishLevel(smoothed);
     // 回调本身才是证据：设备静音时同样会送回调（只有静音电平），
@@ -197,11 +206,13 @@ export async function startWavRecording(
 
   return {
     ready,
+    sampleRate,
     // 采集是同步结束的，返回 Promise 只是为了与调用方
     // 的 await 习惯保持一致。
     stop: () => {
       window.clearTimeout(readyGuard);
       teardown();
+      if (streaming) return Promise.resolve(undefined);
       return Promise.resolve(encodeWav(mergeChunks(chunks), sampleRate));
     },
     cancel: () => {
@@ -210,6 +221,15 @@ export async function startWavRecording(
       chunks.length = 0;
     },
   };
+}
+
+function encodePcm16(samples: Float32Array): Int16Array {
+  const output = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    output[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+  }
+  return output;
 }
 
 function mergeChunks(chunks: Float32Array[]) {

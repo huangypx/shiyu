@@ -35,9 +35,9 @@ export function AttachHistory(path: string): $CancellablePromise<void> {
 }
 
 /**
- * CancelRecording 丢弃当前内存中的会话。桌面界面用浏览器
- * MediaRecorder 采集，再把最终 blob 交给 TranscribeAudio，
- * 因此这是该流程对应的清理操作。
+ * CancelRecording 丢弃当前内存中的会话。桌面界面用 Web Audio
+ * 采集，再把 WAV 交给 TranscribeAudio，因此这是该流程对应的
+ * 清理操作。
  */
 export function CancelRecording(): $CancellablePromise<$models.RecordingStatus> {
     return $Call.ByID(2802257940).then(($result: any) => {
@@ -99,6 +99,17 @@ export function DeleteHistory(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * FinalizeRecording 取走当前会话并把 PCM 拼成 16 kHz WAV。
+ * 前端拿到 data URL 后再走 TranscribeAudio，这样流式增量文本
+ * 仍由前端订阅，音频数据则由后端持有。
+ */
+export function FinalizeRecording(): $CancellablePromise<$models.RecordingAudio> {
+    return $Call.ByID(2358931728).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * GetConfig 是方便 Wails 绑定使用的别名。
  */
 export function GetConfig(): $CancellablePromise<$models.Config> {
@@ -113,7 +124,7 @@ export function GetConfig(): $CancellablePromise<$models.Config> {
  */
 export function GetDesktopConfig(): $CancellablePromise<$models.DesktopConfig> {
     return $Call.ByID(3790401809).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -122,7 +133,7 @@ export function GetDesktopConfig(): $CancellablePromise<$models.DesktopConfig> {
  */
 export function GetHistory(id: string): $CancellablePromise<[$models.HistoryEntry, boolean]> {
     return $Call.ByID(3141529951, id).then(($result: any) => {
-        $result[0] = $$createType3($result[0]);
+        $result[0] = $$createType4($result[0]);
         return $result;
     });
 }
@@ -154,7 +165,7 @@ export function ImportHistory(entries: $models.HistoryEntry[]): $CancellableProm
  */
 export function ListHistory(limit: number, offset: number): $CancellablePromise<$models.HistoryEntry[]> {
     return $Call.ByID(2086487533, limit, offset).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -165,7 +176,7 @@ export function ListHistory(limit: number, offset: number): $CancellablePromise<
  */
 export function PolishText(req: $models.PolishRequestDTO): $CancellablePromise<$models.PolishResult> {
     return $Call.ByID(836824593, req).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -175,7 +186,7 @@ export function PolishText(req: $models.PolishRequestDTO): $CancellablePromise<$
  */
 export function ProcessAudio(req: $models.AudioRequest, polish: boolean): $CancellablePromise<$models.ProcessResult> {
     return $Call.ByID(3781135450, req, polish).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -193,7 +204,7 @@ export function PruneHistory(days: number): $CancellablePromise<number> {
  */
 export function RecentCalls(): $CancellablePromise<$models.CallRecord[]> {
     return $Call.ByID(2031580529).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType9($result);
     });
 }
 
@@ -222,7 +233,7 @@ export function SaveDesktopConfig(cfg: $models.DesktopConfig): $CancellablePromi
  */
 export function SaveHistory(entry: $models.HistoryEntry): $CancellablePromise<$models.HistoryEntry> {
     return $Call.ByID(571267726, entry).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -253,11 +264,12 @@ export function SetBubbleHidden(hidden: boolean): $CancellablePromise<void> {
 
 /**
  * StartRecording 开启一个内存中的录音会话。
- * 真正的麦克风采集仍在前端（MediaRecorder）完成，
- * 音频块通过 AppendRecordingChunk 送上来。
+ * 真正的麦克风采集仍在前端（Web Audio）完成，Int16 PCM 块通过
+ * AppendRecordingChunk 送上来；音频数据由后端持有，窗口销毁不会
+ * 带走已经采集到的部分。
  */
-export function StartRecording(filename: string, mimeType: string, language: string, prompt: string): $CancellablePromise<$models.RecordingStatus> {
-    return $Call.ByID(1357861456, filename, mimeType, language, prompt).then(($result: any) => {
+export function StartRecording(filename: string, mimeType: string, language: string, prompt: string, sampleRate: number): $CancellablePromise<$models.RecordingStatus> {
+    return $Call.ByID(1357861456, filename, mimeType, language, prompt, sampleRate).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -267,7 +279,7 @@ export function StartRecording(filename: string, mimeType: string, language: str
  */
 export function StopRecording(polish: boolean): $CancellablePromise<$models.ProcessResult> {
     return $Call.ByID(1228296270, polish).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -285,18 +297,19 @@ export function TestProviders(cfg: $models.Config): $CancellablePromise<void> {
  */
 export function TranscribeAudio(req: $models.AudioRequest): $CancellablePromise<$models.TranscriptResult> {
     return $Call.ByID(820388534, req).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType10($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = $models.RecordingStatus.createFrom;
 const $$createType1 = $models.Config.createFrom;
-const $$createType2 = $models.DesktopConfig.createFrom;
-const $$createType3 = $models.HistoryEntry.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $models.PolishResult.createFrom;
-const $$createType6 = $models.ProcessResult.createFrom;
-const $$createType7 = $models.CallRecord.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = $models.TranscriptResult.createFrom;
+const $$createType2 = $models.RecordingAudio.createFrom;
+const $$createType3 = $models.DesktopConfig.createFrom;
+const $$createType4 = $models.HistoryEntry.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $models.PolishResult.createFrom;
+const $$createType7 = $models.ProcessResult.createFrom;
+const $$createType8 = $models.CallRecord.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = $models.TranscriptResult.createFrom;

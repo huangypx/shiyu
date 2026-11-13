@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import {
+  applyDesktopSettings,
   configureHotkey,
   loadDesktopSettings,
   loadSettings,
@@ -97,6 +98,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       await saveSettings(models);
       await saveDesktopSettings(desktop);
       await configureHotkey(desktop.hotkey);
+      // 已存在的悬浮球立即跟随「保持置顶」等桌面偏好。
+      await applyDesktopSettings();
       return true;
     } catch {
       // 桌面外壳不可用时配置仍写进了 localStorage，

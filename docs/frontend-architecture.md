@@ -52,24 +52,23 @@ src/
 | store | 内容 |
 | --- | --- |
 | `store/uiStore` | 侧栏开合、设置弹窗、Toast 队列、外观偏好、浮动窗闪烁 |
-| `store/sessionStore` | 录音状态机（`idle` / `arming` / `recording` / `processing`）、处理阶段（`stage`: `transcribe` / `organize`）、转写与整理文本、调用指标、计时 |
+| `store/sessionStore` | Go 会话状态的投影：状态机、处理阶段、转写与整理文本、调用指标；`elapsedMs`/`copied` 是本地呈现字段 |
 | `store/desktopStore` | 窗口模式、平台、backdrop 提示、快捷键注册结果 |
 | `features/settings/settingsStore` | 模型池、整理预设与桌面设置，负责 `hydrate` / `selectPreset` / `selectModel` / `save` |
 | `features/history/notesStore` | 历史记录，读写 Go 的 SQLite；浏览器预览回落到 localStorage |
 | `features/calls/callsStore` | 调用日志，来自 Go 的会话内存 |
-| `features/desktop/windowTransitionStore` | 一次主窗口↔悬浮球过渡的方向、时长、锚点和起止 frame；不持久化 |
 
-窗口切换是唯一不进全局 store 的桌面动画状态：`windowTransitionStore` 只共享一次 transition，供 `AppShell`、`BubbleWindow` 和 `WindowTransition` 同时读取。收起时 `WindowTransition` 用当前 `innerWidth` 和锚点逐帧算水滴几何；展开不画水滴，只等悬浮球淡出、原生窗口落回 Go 记住的 frame 后，铺一层画布遮罩并让主界面在 200ms 内淡入。动画的起止 frame 与时长由 Go 的 `desktop:transition` 事件给出，前端不猜原生窗口的边界。
+窗口切换不再有前端动画状态：Go 按角色创建/销毁窗口，前端按 `?view=main|bubble|overlay` 选择入口。`useSessionBridge` 在挂载时调用 `Controller.GetSession()` 并订阅 `desktop:session`；overlay 宿主是唯一写入方，main/bubble 只读。会话状态因此不会随窗口销毁而丢失。
 
 约定：
 
 - 组件用选择器订阅单个字段，不要订阅整个 store 对象，否则任何字段变化都会重渲染。
 - 异步流程里读最新状态用 `useStore.getState()`，不要依赖闭包里的旧值。
-- 录音器实例是模块级变量：全局快捷键可能在 App 触发，停止按钮却在页面里。
-- 麦克风电平走订阅而不是 store：`services/recorder.ts` 的 `subscribeMicLevel` 每秒推送几十次，组件用 `useMicLevelVar` 把它写进 CSS 变量 `--mic-level`，避免整棵树按音量重渲染。
+- 录音器实例只存在于 overlay 宿主窗口；main/bubble 通过 Go 的 `ToggleRecording` / `CancelTranscription` 发命令。
+- 麦克风电平走订阅而不是 store：宿主产生的电平经 `Controller.PublishMicLevel` 广播，组件用 `useMicLevelVar` 写进 CSS 变量 `--mic-level`，避免整棵树按音量重渲染。
 - 状态切换必须等采集确认：`WavRecorder.ready` resolve 之后才允许从 `arming` 进入 `recording`，否则用户会对着还没生效的麦克风说话。
-- 流式转写的增量文本由 `subscribeAsrPartial` 模块级订阅一次（多个组件都会调用 `useRecordingActions`，各自订阅会把同一段文本重复写进面板），载荷是累计文本，直接覆盖写进 `sessionStore.transcript`。
-- 取消用递增的「处理代号」而不是布尔标记：`cancelTranscription` 把代号 +1 并 abort 本地 `AbortController`，后端 `CancelTranscription` 负责中断在途 HTTP；每个 `await` 之后核对代号，对不上的结果静默丢弃。
+- 流式转写的增量文本由 overlay 宿主的 `subscribeAsrPartial` 模块级订阅一次，载荷是累计文本，直接覆盖写进 `sessionStore.transcript` 并发布给 Go。
+- 取消用递增的「处理代号」而不是布尔标记：宿主把代号 +1 并 abort 本地 `AbortController`，后端 `CancelTranscription` 负责中断在途 HTTP；每个 `await` 之后核对代号，对不上的结果静默丢弃。
 - 记录卡的翻面跟随数据而不是自己记状态：`organized` 有内容就落在「整理结果」一面，被清空（新一次录音、取消、关掉结果预览）就回「原始记录」；用户手动翻面只是一次临时覆盖，下一次数据变化就让它失效。处理中的两段靠 `stage` 区分，界面才能说准是在识别还是在整理。
 
 ## 服务层

@@ -22,6 +22,7 @@ export {
     PolishRequestDTO,
     PolishResult,
     ProcessResult,
+    RecordingAudio,
     RecordingStatus,
     TokenUsage,
     TranscriptResult

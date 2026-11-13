@@ -8,7 +8,6 @@ import RecordPage from './RecordPage';
 
 vi.mock('@/services/bridge', () => ({
   startRecording: vi.fn(),
-  stopRecording: vi.fn(),
   transcribe: vi.fn(),
   organize: vi.fn(),
   pasteText: vi.fn(),
@@ -17,9 +16,11 @@ vi.mock('@/services/bridge', () => ({
   clearCalls: vi.fn(),
   setActivePreset: vi.fn(),
   blobToDataUrl: vi.fn(),
-  subscribeDesktopHotkey: vi.fn(() => () => undefined),
   subscribeAsrPartial: vi.fn(() => () => undefined),
+  subscribeDesktopMicLevel: vi.fn(() => () => undefined),
+  cancelDesktopTranscription: vi.fn(),
   cancelTranscriptionRequest: vi.fn(),
+  toggleDesktopRecording: vi.fn(),
   TransferCancelled: class TransferCancelled extends Error {},
 }));
 
@@ -37,6 +38,8 @@ describe('RecordPage', () => {
       transcript: '',
       organized: '',
       metrics: {},
+      stageStartedAt: 0,
+      revision: 0,
       elapsedMs: 0,
       copied: false,
     });

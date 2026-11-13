@@ -10,9 +10,7 @@ const backend = vi.hoisted(() => ({
   CancelTranscription: vi.fn(),
   GetConfig: vi.fn(),
 }));
-const controller = vi.hoisted(() => ({
-  SetReduceMotion: vi.fn(),
-}));
+const controller = vi.hoisted(() => ({}));
 const events = vi.hoisted(() => ({
   handlers: new Map<string, (event: { data?: unknown }) => void>(),
   On: vi.fn((name: string, handler: (event: { data?: unknown }) => void) => {
@@ -31,9 +29,7 @@ vi.mock('@wailsio/runtime', () => ({ Events: { On: events.On } }));
 
 import {
   cancelTranscriptionRequest,
-  setReduceMotion,
   subscribeAsrPartial,
-  subscribeDesktopTransition,
   transcribe,
   TransferCancelled,
 } from './bridge';
@@ -51,7 +47,6 @@ beforeEach(() => {
   });
   backend.PolishText.mockResolvedValue({ text: '整理', call: { id: 'c2' } });
   backend.CancelTranscription.mockResolvedValue(undefined);
-  controller.SetReduceMotion.mockResolvedValue(undefined);
 });
 
 describe('bridge', () => {
@@ -102,34 +97,5 @@ describe('bridge', () => {
     events.handlers.get('asr:partial')?.({ data: { text: 42 } });
 
     expect(received).toEqual(['你好']);
-  });
-
-  it('把减少动态效果同步给控制器', () => {
-    void setReduceMotion(true);
-    expect(controller.SetReduceMotion).toHaveBeenCalledWith(true);
-  });
-
-  it('窗口切换事件只转发完整载荷', () => {
-    const received: string[] = [];
-    subscribeDesktopTransition((transition) =>
-      received.push(transition.anchor),
-    );
-
-    const valid = {
-      direction: 'expand',
-      durationMs: 340,
-      anchor: 'bottom-right',
-      from: { x: 200, y: 300, width: 92, height: 92 },
-      to: { x: 0, y: 0, width: 1000, height: 820 },
-    };
-    events.handlers.get('desktop:transition')?.({ data: valid });
-    events.handlers.get('desktop:transition')?.({
-      data: { ...valid, anchor: 'middle' },
-    });
-    events.handlers.get('desktop:transition')?.({
-      data: { ...valid, to: { x: 0, y: 0, width: 0, height: 820 } },
-    });
-
-    expect(received).toEqual(['bottom-right']);
   });
 });

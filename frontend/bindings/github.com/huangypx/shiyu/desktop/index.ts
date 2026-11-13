@@ -7,6 +7,8 @@ export {
 };
 
 export {
-    RecordingHotkey,
+    SessionCommand,
+    SessionMetrics,
+    SessionState,
     State
 } from "./models.js";

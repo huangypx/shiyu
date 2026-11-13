@@ -710,10 +710,40 @@ export class ProcessResult {
     }
 }
 
+/**
+ * RecordingAudio 是收尾后的 WAV，Data 直接作为 data URL 交给
+ * 前端的转写流程；Bytes 用于诊断分片是否连续。
+ */
+export class RecordingAudio {
+    "data": string;
+    "bytes": number;
+
+    /** Creates a new RecordingAudio instance. */
+    constructor($$source: Partial<RecordingAudio> = {}) {
+        if (!("data" in $$source)) {
+            this["data"] = "";
+        }
+        if (!("bytes" in $$source)) {
+            this["bytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingAudio instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingAudio {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingAudio($$parsedSource as Partial<RecordingAudio>);
+    }
+}
+
 export class RecordingStatus {
     "active": boolean;
     "id"?: string;
     "startedAt"?: string;
+    "sampleRate"?: number;
     "bytes": number;
 
     /** Creates a new RecordingStatus instance. */

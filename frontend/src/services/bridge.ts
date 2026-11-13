@@ -3,6 +3,7 @@ import { Events } from '@wailsio/runtime';
 import {
   type AsrModelConfig,
   type Backdrop,
+  type CallMetrics,
   type CallRecord,
   DEFAULT_ACTIVE_PRESET_ID,
   DEFAULT_ASR_MODEL,
@@ -24,27 +25,20 @@ import { Controller } from '../../bindings/github.com/huangypx/shiyu/desktop';
 // 一次模型调用：产出的文本，以及这次调用本身的记录。
 export type CallOutcome = { text: string; call?: CallRecord };
 
-// 窗口切换事件里的逻辑像素矩形。字段与 Go 侧的 windowBounds
-// 保持一致，前端只用 width/height 推导水滴进度。
-export type WindowBounds = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+// SessionSnapshot 是 Go 侧会话状态在前端的形状。窗口只读它，
+// 录音宿主负责写入。
+export type SessionSnapshot = {
+  status: 'idle' | 'arming' | 'recording' | 'processing';
+  stage: 'transcribe' | 'organize' | null;
+  transcript: string;
+  organized: string;
+  metrics: CallMetrics;
+  stageStartedAt: number;
+  revision: number;
+  host?: string;
 };
 
-export type WindowTransitionAnchor =
-  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-
-export type WindowTransitionPayload = {
-  direction: 'shrink' | 'expand';
-  // 收起是逐帧动画时长；展开是等悬浮球淡出的时长。
-  durationMs: number;
-  // 收起时水滴贴住主窗口的哪个角；展开不使用锚点。
-  anchor: WindowTransitionAnchor;
-  from: WindowBounds;
-  to: WindowBounds;
-};
+export type SessionCommandKind = 'toggle' | 'cancel';
 
 type AudioRequest = {
   data: string;
@@ -101,20 +95,33 @@ function desktopOnly<T>(call: () => T): T | undefined {
   return call();
 }
 
-export function startRecording(settings: ModelSettings) {
-  // 渲染层采集 16 kHz 单声道 WAV，所有支持的 ASR 接口
-  // 都接受；MediaRecorder 的 webm/mp4 容器则不行。
+export function isDesktopRuntime() {
+  return isDesktop();
+}
+
+export function startRecording(settings: ModelSettings, sampleRate: number) {
+  // 采集在 overlay 窗口完成，但 PCM 分片由后端持有；收尾时
+  // Go 负责重采样到 16 kHz 并补 WAV 头。
   return desktopOnly(() =>
     BackendApp.StartRecording(
       'recording.wav',
       'audio/wav',
       settings.language,
       '',
+      sampleRate,
     ),
   );
 }
 
-export function stopRecording() {
+export function appendRecordingChunk(data: string) {
+  return desktopOnly(() => BackendApp.AppendRecordingChunk({ data }));
+}
+
+export function finalizeRecording() {
+  return desktopOnly(() => BackendApp.FinalizeRecording());
+}
+
+export function cancelRecording() {
   return desktopOnly(() => BackendApp.CancelRecording());
 }
 
@@ -207,12 +214,6 @@ export function subscribeAsrPartial(callback: (text: string) => void) {
     const text = (data as { text?: unknown }).text;
     if (typeof text === 'string') callback(text);
   });
-}
-
-// setReduceMotion 把系统的「减少动态效果」同步给原生窗口动画。
-// 原生窗口的 setFrame 读不到 CSS 媒体查询，只能由前端告诉 Go。
-export function setReduceMotion(enabled: boolean) {
-  return desktopOnly(() => Controller.SetReduceMotion(enabled));
 }
 
 // organize 显式带上当前预设：用户可能刚在设置里切换过，而后端
@@ -514,7 +515,7 @@ export async function loadDesktopState(): Promise<DesktopState | undefined> {
 }
 
 export function enterBubble() {
-  return desktopOnly(() => Controller.SetMode('bubble'));
+  return desktopOnly(() => Controller.EnterBubble());
 }
 
 export function showMainWindow() {
@@ -529,12 +530,6 @@ export function hideWindow() {
 // 热键叫出底部胶囊，恢复时回到悬浮球。无托盘的平台会拒绝隐藏。
 export function setBubbleHidden(hidden: boolean) {
   return desktopOnly(() => Controller.SetBubbleHidden(hidden));
-}
-
-// setSessionStatus 把录音会话状态同步给宿主：驱动托盘录音图标，
-// 并在回到 idle 后安排胶囊隐藏。唯一调用点是 useSessionStatusBridge。
-export function setSessionStatus(status: string) {
-  return desktopOnly(() => Controller.SetSessionStatus(status));
 }
 
 export function quitApp() {
@@ -552,10 +547,6 @@ export function resolveWindowClose(
   remember: boolean,
 ) {
   return desktopOnly(() => Controller.ResolveClose(action, remember));
-}
-
-export function toggleDesktopMode() {
-  return desktopOnly(() => Controller.ToggleMode());
 }
 
 export function saveBubblePosition() {
@@ -610,27 +601,111 @@ export function configureHotkey(hotkey: string) {
   return desktopOnly(() => Controller.ConfigureHotkey(hotkey));
 }
 
-export function subscribeDesktopHotkey(
-  callback: (mode: DesktopState['mode'], target?: string) => void,
+function toSessionSnapshot(value: unknown): SessionSnapshot | null {
+  if (!value || typeof value !== 'object') return null;
+  const state = value as Record<string, unknown>;
+  const status = state.status;
+  if (
+    status !== 'idle' &&
+    status !== 'arming' &&
+    status !== 'recording' &&
+    status !== 'processing'
+  ) {
+    return null;
+  }
+  const stageValue = state.stage;
+  const stage =
+    stageValue === 'transcribe' || stageValue === 'organize'
+      ? stageValue
+      : null;
+  return {
+    status,
+    stage,
+    transcript: typeof state.transcript === 'string' ? state.transcript : '',
+    organized: typeof state.organized === 'string' ? state.organized : '',
+    metrics: (state.metrics as CallMetrics | undefined) ?? {},
+    stageStartedAt:
+      typeof state.stageStartedAt === 'number' ? state.stageStartedAt : 0,
+    revision: typeof state.revision === 'number' ? state.revision : 0,
+    host: typeof state.host === 'string' ? state.host : undefined,
+  };
+}
+
+export async function getSession(): Promise<SessionSnapshot | undefined> {
+  if (!isDesktop()) return undefined;
+  return toSessionSnapshot(await Controller.GetSession()) ?? undefined;
+}
+
+export function publishSession(snapshot: SessionSnapshot) {
+  return desktopOnly(() =>
+    Controller.PublishSession({
+      status: snapshot.status,
+      stage: snapshot.stage ?? '',
+      transcript: snapshot.transcript,
+      organized: snapshot.organized,
+      metrics: snapshot.metrics,
+      stageStartedAt: snapshot.stageStartedAt,
+      revision: 0,
+      host: '',
+    }),
+  );
+}
+
+export function toggleDesktopRecording() {
+  return desktopOnly(() => Controller.ToggleRecording());
+}
+
+export function cancelDesktopTranscription() {
+  return desktopOnly(() => Controller.CancelTranscription());
+}
+
+export async function takeSessionCommands(): Promise<SessionCommandKind[]> {
+  if (!isDesktop()) return [];
+  const commands = await Controller.TakeSessionCommands();
+  return commands
+    .map((command) => command.kind)
+    .filter(
+      (kind): kind is SessionCommandKind =>
+        kind === 'toggle' || kind === 'cancel',
+    );
+}
+
+export async function takeMainCommands(): Promise<string[]> {
+  if (!isDesktop()) return [];
+  return Controller.TakeMainCommands();
+}
+
+export function publishMicLevel(level: number) {
+  return desktopOnly(() => Controller.PublishMicLevel(level));
+}
+
+export function applyDesktopSettings() {
+  return desktopOnly(() => Controller.ApplyDesktopSettings());
+}
+
+export function subscribeDesktopSession(
+  callback: (snapshot: SessionSnapshot) => void,
 ) {
   if (!isDesktop()) return () => undefined;
-  let disposed = false;
-  const drain = async () => {
-    const keys = await Controller.TakeRecordingHotkeys();
-    if (disposed) return;
-    for (const key of keys) {
-      callback(key.mode as DesktopState['mode'], key.target);
-    }
-  };
-  // 订阅前先领取一次：全局热键可能先于前端挂载到达。
-  void drain().catch(() => undefined);
-  const unsubscribe = Events.On('desktop:hotkey', () => {
-    void drain().catch(() => undefined);
+  return Events.On('desktop:session', (event) => {
+    const snapshot = toSessionSnapshot(event.data);
+    if (snapshot) callback(snapshot);
   });
-  return () => {
-    disposed = true;
-    unsubscribe();
-  };
+}
+
+export function subscribeDesktopSessionCommand(callback: () => void) {
+  if (!isDesktop()) return () => undefined;
+  return Events.On('desktop:session-command', () => callback());
+}
+
+export function subscribeDesktopMicLevel(callback: (level: number) => void) {
+  if (!isDesktop()) return () => undefined;
+  return Events.On('desktop:mic-level', (event) => {
+    const data = event.data as { level?: unknown } | undefined;
+    if (data && typeof data.level === 'number' && Number.isFinite(data.level)) {
+      callback(data.level);
+    }
+  });
 }
 
 export function subscribeDesktopSettings(callback: () => void) {
@@ -645,69 +720,6 @@ export function subscribeDesktopState(callback: (state: DesktopState) => void) {
   return Events.On('desktop:state', (event) => {
     const data: unknown = event.data;
     if (data && typeof data === 'object') callback(data as DesktopState);
-  });
-}
-
-function isWindowBounds(value: unknown): value is WindowBounds {
-  if (!value || typeof value !== 'object') return false;
-  const bounds = value as Record<string, unknown>;
-  return (
-    typeof bounds.x === 'number' &&
-    Number.isFinite(bounds.x) &&
-    typeof bounds.y === 'number' &&
-    Number.isFinite(bounds.y) &&
-    typeof bounds.width === 'number' &&
-    Number.isFinite(bounds.width) &&
-    bounds.width > 0 &&
-    typeof bounds.height === 'number' &&
-    Number.isFinite(bounds.height) &&
-    bounds.height > 0
-  );
-}
-
-function parseDesktopTransition(data: unknown): WindowTransitionPayload | null {
-  if (!data || typeof data !== 'object') return null;
-  const payload = data as Record<string, unknown>;
-  const direction = payload.direction;
-  if (direction !== 'shrink' && direction !== 'expand') return null;
-  if (
-    typeof payload.durationMs !== 'number' ||
-    !Number.isFinite(payload.durationMs) ||
-    payload.durationMs < 0
-  ) {
-    return null;
-  }
-  const anchor = payload.anchor;
-  if (
-    anchor !== 'top-left' &&
-    anchor !== 'top-right' &&
-    anchor !== 'bottom-left' &&
-    anchor !== 'bottom-right'
-  ) {
-    return null;
-  }
-  if (!isWindowBounds(payload.from) || !isWindowBounds(payload.to)) {
-    return null;
-  }
-  return {
-    direction,
-    durationMs: payload.durationMs,
-    anchor,
-    from: payload.from,
-    to: payload.to,
-  };
-}
-
-// 原生窗口开始切换前发出。收起时载荷描述两端矩形和时长，
-// 逐帧进度由前端读窗口实际宽度计算；展开只用 durationMs 等
-// 悬浮球淡出，几何字段不参与绘制。
-export function subscribeDesktopTransition(
-  callback: (transition: WindowTransitionPayload) => void,
-) {
-  if (!isDesktop()) return () => undefined;
-  return Events.On('desktop:transition', (event) => {
-    const transition = parseDesktopTransition(event.data);
-    if (transition) callback(transition);
   });
 }
 

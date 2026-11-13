@@ -1,39 +1,36 @@
 import { useCallback, useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
-import BubbleRoute from '@/app/layout/BubbleRoute';
 import { router } from '@/app/router';
-import { useSessionStatusBridge } from '@/app/useSessionStatusBridge';
+import { useDesktopBridge } from '@/app/useDesktopBridge';
+import { useSessionBridge } from '@/app/useSessionBridge';
 import { useCallsStore } from '@/features/calls/callsStore';
 import CloseDialog from '@/features/desktop/CloseDialog';
-import OverlayRoute from '@/features/desktop/OverlayRoute';
 import { useAppShortcuts } from '@/features/desktop/useAppShortcuts';
-import { useDesktopBridge } from '@/features/desktop/useDesktopBridge';
 import { useGlobalHotkey } from '@/features/desktop/useGlobalHotkey';
-import WindowTransition from '@/features/desktop/WindowTransition';
 import { useNotesStore } from '@/features/history/notesStore';
 import { useRecordingActions } from '@/features/recorder/useRecordingSession';
 import { useSettingsStore } from '@/features/settings/settingsStore';
+import { takeMainCommands } from '@/services/bridge';
 import { useDesktopStore } from '@/store/desktopStore';
+import { useUiStore } from '@/store/uiStore';
 
+// 主窗口只是会话与桌面状态的一个视图；录音采集在 overlay 宿主。
 export default function App() {
-  const mode = useDesktopStore((state) => state.runtime.mode);
   const closeRequested = useDesktopStore(
     (state) => state.runtime.closeRequested,
   );
   const { toggleRecording } = useRecordingActions();
 
   useDesktopBridge();
-  // 会话状态同步给宿主：胶囊隐藏定时器靠它（托盘图标静态），只挂一次。
-  useSessionStatusBridge();
+  useSessionBridge();
   useAppShortcuts();
-  // 快捷键与界面无关：浮动模式下同样要能开始录音。
   const triggerRecording = useCallback(() => {
-    void toggleRecording();
+    toggleRecording();
   }, [toggleRecording]);
   useGlobalHotkey(triggerRecording);
 
-  // 配置、历史与调用日志在启动时各拉一次，之后由操作驱动。
+  // 配置、历史与调用日志在窗口挂载时各拉一次，之后由操作驱动。
   // 历史必须在设置之后加载：迁移旧 localStorage 记录时要读当前模型配置。
   useEffect(() => {
     void useSettingsStore
@@ -43,16 +40,24 @@ export default function App() {
     void useCallsStore.getState().hydrate();
   }, []);
 
+  // 从悬浮球打开偏好设置时，主窗口可能刚创建，事件会早于订阅。
+  useEffect(() => {
+    let cancelled = false;
+    void takeMainCommands()
+      .then((commands) => {
+        if (!cancelled && commands.includes('settings')) {
+          useUiStore.getState().openSettings();
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <>
-      {mode === 'overlay' ? (
-        <OverlayRoute />
-      ) : mode === 'bubble' ? (
-        <BubbleRoute />
-      ) : (
-        <RouterProvider router={router} />
-      )}
-      <WindowTransition />
+      <RouterProvider router={router} />
       {closeRequested && <CloseDialog />}
     </>
   );

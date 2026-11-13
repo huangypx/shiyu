@@ -59,9 +59,8 @@ func main() {
 		log.Printf("pruned %d history records older than %d days", removed, cfg.HistoryRetentionDays)
 	}
 
-	// Wails v3 把应用、窗口和事件循环拆成三步：先创建应用并注册
-	// 服务，再创建唯一的窗口，最后交给 Run 启动。控制器需要窗口
-	// 指针，因此在窗口创建后单独注册。
+	// Wails v3 的应用实例是唯一内核：main/bubble/overlay 都是它
+	// 下面的独立窗口，由控制器按需创建和销毁。
 	desktopApp := application.New(application.Options{
 		Name: "拾语 · Shiyu",
 		Services: []application.Service{
@@ -83,8 +82,7 @@ func main() {
 		desktopApp.Event.Emit(name, data)
 	})
 
-	window := desktopApp.Window.NewWithOptions(desktop.NewWindowOptions(cfg.StartInBubble))
-	controller := desktop.NewController(app, desktopApp, window)
+	controller := desktop.NewController(app, desktopApp)
 	desktopApp.RegisterService(application.NewService(controller))
 	desktop.RegisterBubbleMenu(desktopApp, controller)
 

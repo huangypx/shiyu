@@ -75,8 +75,8 @@ export type DesktopSettings = {
 };
 
 export type DesktopState = {
-  // overlay 是隐藏悬浮球后按热键叫出的底部胶囊形态。
-  mode: 'main' | 'bubble' | 'overlay';
+  // hidden 表示只剩托盘；overlay 是隐藏态按热键叫出的底部胶囊。
+  mode: 'main' | 'bubble' | 'overlay' | 'hidden';
   hotkey: string;
   hotkeyRegistered: boolean;
   hotkeyReason?: string;

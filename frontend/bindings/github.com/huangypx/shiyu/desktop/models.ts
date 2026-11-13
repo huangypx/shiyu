@@ -5,38 +5,116 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-/**
- * RecordingHotkey 是一次全局热键的快照：模式决定前端投递方式，
- * Target 是按键瞬间的粘贴目标，随键入队供前端领取。
- */
-export class RecordingHotkey {
-    "mode": string;
-    "target": string;
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as backend$0 from "../backend/models.js";
 
-    /** Creates a new RecordingHotkey instance. */
-    constructor($$source: Partial<RecordingHotkey> = {}) {
-        if (!("mode" in $$source)) {
-            this["mode"] = "";
-        }
-        if (!("target" in $$source)) {
-            this["target"] = "";
+/**
+ * SessionCommand 是发给 overlay 采集宿主的控制命令。宿主窗口可能
+ * 比命令晚挂载，所以先入队，前端就绪后再领取。
+ */
+export class SessionCommand {
+    "kind": string;
+
+    /** Creates a new SessionCommand instance. */
+    constructor($$source: Partial<SessionCommand> = {}) {
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
         }
 
         Object.assign(this, $$source);
     }
 
     /**
-     * Creates a new RecordingHotkey instance from a string or object.
+     * Creates a new SessionCommand instance from a string or object.
      */
-    static createFrom($$source: any = {}): RecordingHotkey {
+    static createFrom($$source: any = {}): SessionCommand {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new RecordingHotkey($$parsedSource as Partial<RecordingHotkey>);
+        return new SessionCommand($$parsedSource as Partial<SessionCommand>);
     }
 }
 
 /**
- * State 刻意保持精简且易于 JSON 序列化：原生控制器掌管真实窗口，
- * React 外壳只管自己的视觉状态。
+ * SessionMetrics 镜像前端 CallMetrics，字段名与现有历史记录一致。
+ */
+export class SessionMetrics {
+    "asr"?: backend$0.CallRecord | null;
+    "llm"?: backend$0.CallRecord | null;
+
+    /** Creates a new SessionMetrics instance. */
+    constructor($$source: Partial<SessionMetrics> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionMetrics instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionMetrics {
+        const $$createField0_0 = $$createType1;
+        const $$createField1_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("asr" in $$parsedSource) {
+            $$parsedSource["asr"] = $$createField0_0($$parsedSource["asr"]);
+        }
+        if ("llm" in $$parsedSource) {
+            $$parsedSource["llm"] = $$createField1_0($$parsedSource["llm"]);
+        }
+        return new SessionMetrics($$parsedSource as Partial<SessionMetrics>);
+    }
+}
+
+/**
+ * SessionState 是所有窗口共享的唯一会话状态。录音中的实时文本由
+ * overlay 采集宿主写入，main/bubble 只读；窗口销毁不会带走它。
+ */
+export class SessionState {
+    "status": string;
+    "stage"?: string;
+    "transcript": string;
+    "organized": string;
+    "metrics": SessionMetrics;
+    "stageStartedAt"?: number;
+    "revision": number;
+    "host"?: string;
+
+    /** Creates a new SessionState instance. */
+    constructor($$source: Partial<SessionState> = {}) {
+        if (!("status" in $$source)) {
+            this["status"] = "";
+        }
+        if (!("transcript" in $$source)) {
+            this["transcript"] = "";
+        }
+        if (!("organized" in $$source)) {
+            this["organized"] = "";
+        }
+        if (!("metrics" in $$source)) {
+            this["metrics"] = (new SessionMetrics());
+        }
+        if (!("revision" in $$source)) {
+            this["revision"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionState {
+        const $$createField4_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("metrics" in $$parsedSource) {
+            $$parsedSource["metrics"] = $$createField4_0($$parsedSource["metrics"]);
+        }
+        return new SessionState($$parsedSource as Partial<SessionState>);
+    }
+}
+
+/**
+ * State 是桌面外壳的全局状态。窗口角色与是否只剩托盘分开表达：
+ * Mode 是当前主可见面，BubbleHidden 决定恢复入口。
  */
 export class State {
     "mode": string;
@@ -47,21 +125,8 @@ export class State {
     "keepBubbleOnTop": boolean;
     "restoreClipboard": boolean;
     "canInjectText": boolean;
-
-    /**
-     * BubbleHidden 表示悬浮球已隐藏、只剩托盘；设置开关读它判断可见性。
-     */
     "bubbleHidden": boolean;
-
-    /**
-     * CloseRequested 表示关闭确认框正在显示，前端据此弹出 CloseDialog。
-     */
     "closeRequested": boolean;
-
-    /**
-     * Platform 和 Backdrop 让 React 外壳选择标题栏尺寸和画布样式；
-     * Backdrop 只是 CSS 提示，不再安装原生材质视图。
-     */
     "platform": string;
     "backdrop": string;
 
@@ -112,3 +177,8 @@ export class State {
         return new State($$parsedSource as Partial<State>);
     }
 }
+
+// Private type creation functions
+const $$createType0 = backend$0.CallRecord.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = SessionMetrics.createFrom;

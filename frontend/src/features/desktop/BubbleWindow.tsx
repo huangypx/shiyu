@@ -12,7 +12,6 @@ import { useMicLevelVar } from '@/features/recorder/useMicLevel';
 import { saveBubblePosition } from '@/services/bridge';
 
 import styles from './BubbleWindow.module.css';
-import { useWindowTransitionStore } from './windowTransitionStore';
 
 declare global {
   interface Window {
@@ -80,8 +79,6 @@ export default function BubbleWindow({
   // 音量写在外壳上：球体和音晕都读同一个变量，音晕又不受
   // 球体缩放影响，放大后仍能完整落在 92x92 的球区里。
   const shellRef = useRef<HTMLElement>(null);
-  const transition = useWindowTransitionStore((state) => state.transition);
-  const leaving = transition?.direction === 'expand';
   useMicLevelVar(shellRef);
 
   const stopPositionPolling = () => {
@@ -310,7 +307,6 @@ export default function BubbleWindow({
       ref={shellRef}
       className={styles.shell}
       data-state={state}
-      data-leaving={leaving ? 'true' : undefined}
       aria-label="拾语浮动录音按钮"
       // 右键时先关掉拖拽区，菜单关闭后再由鼠标状态恢复。
       onContextMenu={handleContextMenu}

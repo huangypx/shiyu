@@ -57,7 +57,7 @@ func TestAppProcessAndRecording(t *testing.T) {
 	if result.DurationMS < 0 {
 		t.Fatalf("duration = %d", result.DurationMS)
 	}
-	if _, err := app.StartRecording("x.webm", "audio/webm", "", ""); err != nil {
+	if _, err := app.StartRecording("x.webm", "audio/webm", "", "", 16000); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := app.AppendRecordingChunk(AudioChunk{Data: data}); err != nil {

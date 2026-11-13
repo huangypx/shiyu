@@ -10,6 +10,7 @@ func (c *Controller) RequestClose() error {
 	}
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
+
 	action := "ask"
 	if c.app != nil {
 		action = c.app.GetDesktopConfig().CloseAction
@@ -17,33 +18,41 @@ func (c *Controller) RequestClose() error {
 	if action == "" {
 		action = "ask"
 	}
+
 	c.mu.Lock()
 	if c.closePending {
 		c.mu.Unlock()
 		return nil
 	}
-	if action == "ask" {
-		c.closePending = true
-	}
-	mode := c.mode
-	transitioning := c.transitioning
 	c.mu.Unlock()
-	if action == "ask" {
-		// 确认框要在可见的主窗口上弹出；球/隐藏/最小化/动画先恢复主窗口。
-		if transitioning || mode != ModeMain || !c.window.IsVisible() || c.window.IsMinimised() {
-			return c.ShowMainWindow()
+
+	switch action {
+	case "ask":
+		c.mu.Lock()
+		c.closePending = true
+		c.mu.Unlock()
+		// 确认框在主窗口里显示；主窗口可能刚被收起或隐藏。
+		if err := c.ShowMainWindow(); err != nil {
+			c.mu.Lock()
+			c.closePending = false
+			c.mu.Unlock()
+			return err
 		}
 		c.emitState()
 		return nil
+	case "quit":
+		c.Quit()
+		return nil
+	default:
+		return c.EnterBubble()
 	}
-	return c.applyCloseAction(action)
 }
 
 // ResolveClose 先保存用户勾选的偏好，写入失败时保留弹窗供重试。
-// action 为 cancel/background/quit；remember 时把选择写回 CloseAction。
 func (c *Controller) ResolveClose(action string, remember bool) error {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
+
 	c.mu.RLock()
 	pending := c.closePending
 	c.mu.RUnlock()
@@ -66,19 +75,15 @@ func (c *Controller) ResolveClose(action string, remember bool) error {
 	c.mu.Lock()
 	c.closePending = false
 	c.mu.Unlock()
-	if action == "cancel" {
+
+	switch action {
+	case "cancel":
 		c.emitState()
 		return nil
-	}
-	return c.applyCloseAction(action)
-}
-
-// applyCloseAction 执行关闭选择：quit 退出进程，background 收成悬浮球
-// 后台运行（托盘常驻，进程不退出）。
-func (c *Controller) applyCloseAction(action string) error {
-	if action == "quit" {
+	case "quit":
 		c.Quit()
 		return nil
+	default:
+		return c.EnterBubble()
 	}
-	return c.SetMode(ModeBubble)
 }

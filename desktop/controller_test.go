@@ -3,14 +3,12 @@ package desktop
 import (
 	"runtime"
 	"testing"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestControllerRequiresStartupForWindowMode(t *testing.T) {
-	controller := NewController(nil, nil, nil)
-	if err := controller.SetMode(ModeBubble); err == nil {
-		t.Fatal("expected SetMode to require Wails startup")
+	controller := NewController(nil, nil)
+	if err := controller.EnterBubble(); err == nil {
+		t.Fatal("expected EnterBubble to require Wails startup")
 	}
 	state := controller.GetState()
 	if state.Mode != ModeMain {
@@ -27,7 +25,7 @@ func TestControllerRequiresStartupForWindowMode(t *testing.T) {
 }
 
 func TestWindowCommandsRequireStartup(t *testing.T) {
-	controller := NewController(nil, nil, nil)
+	controller := NewController(nil, nil)
 	if err := controller.SaveBubblePosition(); err == nil {
 		t.Fatal("expected SaveBubblePosition to require Wails startup")
 	}
@@ -48,8 +46,39 @@ func TestWindowCommandsRequireStartup(t *testing.T) {
 	}
 }
 
+func TestPublishSessionRejectsUnknownStatus(t *testing.T) {
+	controller := NewController(nil, nil)
+	if err := controller.PublishSession(SessionState{Status: "nope"}); err == nil {
+		t.Fatal("expected unknown session status to be rejected")
+	}
+}
+
+func TestPublishSessionIncrementsRevision(t *testing.T) {
+	controller := NewController(nil, nil)
+	if err := controller.PublishSession(SessionState{Status: "recording"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.PublishSession(SessionState{Status: "processing"}); err != nil {
+		t.Fatal(err)
+	}
+	session := controller.GetSession()
+	if session.Revision != 2 {
+		t.Fatalf("revision = %d, want 2", session.Revision)
+	}
+	if session.Host != ModeOverlay {
+		t.Fatalf("host = %q, want overlay", session.Host)
+	}
+}
+
+func TestSessionCommandQueueStartsEmpty(t *testing.T) {
+	controller := NewController(nil, nil)
+	if commands := controller.TakeSessionCommands(); len(commands) != 0 {
+		t.Fatalf("commands = %+v, want none", commands)
+	}
+}
+
 func TestClampPointKeepsBubbleInsideWorkArea(t *testing.T) {
-	area := application.Rect{X: 100, Y: 50, Width: 1000, Height: 800}
+	area := applicationRect(100, 50, 1000, 800)
 
 	if got := clampPoint(point{X: -40, Y: -20}, area); got != (point{X: 100, Y: 50}) {
 		t.Fatalf("negative position clamped to %+v, want the work area origin", got)
@@ -67,7 +96,7 @@ func TestClampPointKeepsBubbleInsideWorkArea(t *testing.T) {
 }
 
 func TestRectContainsOnlyAcceptsInteriorPoints(t *testing.T) {
-	area := application.Rect{X: 10, Y: 20, Width: 100, Height: 80}
+	area := applicationRect(10, 20, 100, 80)
 	if !rectContains(area, point{X: 10, Y: 20}) {
 		t.Fatal("top-left corner must be inside the work area")
 	}

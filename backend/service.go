@@ -47,13 +47,15 @@ type activeCall struct {
 }
 
 type recording struct {
-	id        string
-	startedAt time.Time
-	filename  string
-	mimeType  string
-	language  string
-	prompt    string
-	data      []byte
+	id         string
+	startedAt  time.Time
+	filename   string
+	mimeType   string
+	language   string
+	prompt     string
+	sampleRate int
+	// data 是 Int16 LE 的单声道 PCM，收尾时才补 WAV 头。
+	data []byte
 }
 
 // NewApp 从 configPath 读取配置并据此构建模型池。
@@ -593,16 +595,28 @@ func (a *App) ProcessAudio(req AudioRequest, polish bool) (ProcessResult, error)
 }
 
 // StartRecording 开启一个内存中的录音会话。
-// 真正的麦克风采集仍在前端（MediaRecorder）完成，
-// 音频块通过 AppendRecordingChunk 送上来。
-func (a *App) StartRecording(filename, mimeType, language, prompt string) (RecordingStatus, error) {
+// 真正的麦克风采集仍在前端（Web Audio）完成，Int16 PCM 块通过
+// AppendRecordingChunk 送上来；音频数据由后端持有，窗口销毁不会
+// 带走已经采集到的部分。
+func (a *App) StartRecording(
+	filename, mimeType, language, prompt string,
+	sampleRate int,
+) (RecordingStatus, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.recording != nil {
 		return RecordingStatus{}, errors.New("a recording is already active")
 	}
 	now := time.Now()
-	a.recording = &recording{id: fmt.Sprintf("%d", now.UnixNano()), startedAt: now, filename: filename, mimeType: mimeType, language: language, prompt: prompt}
+	a.recording = &recording{
+		id:         fmt.Sprintf("%d", now.UnixNano()),
+		startedAt:  now,
+		filename:   filename,
+		mimeType:   mimeType,
+		language:   language,
+		prompt:     prompt,
+		sampleRate: sampleRate,
+	}
 	return a.recording.status(), nil
 }
 
@@ -611,17 +625,24 @@ type AudioChunk struct {
 }
 
 type RecordingStatus struct {
-	Active    bool      `json:"active"`
-	ID        string    `json:"id,omitempty"`
-	StartedAt time.Time `json:"startedAt,omitempty"`
-	Bytes     int       `json:"bytes"`
+	Active     bool      `json:"active"`
+	ID         string    `json:"id,omitempty"`
+	StartedAt  time.Time `json:"startedAt,omitempty"`
+	SampleRate int       `json:"sampleRate,omitempty"`
+	Bytes      int       `json:"bytes"`
 }
 
 func (r *recording) status() RecordingStatus {
 	if r == nil {
 		return RecordingStatus{}
 	}
-	return RecordingStatus{Active: true, ID: r.id, StartedAt: r.startedAt, Bytes: len(r.data)}
+	return RecordingStatus{
+		Active:     true,
+		ID:         r.id,
+		StartedAt:  r.startedAt,
+		SampleRate: r.sampleRate,
+		Bytes:      len(r.data),
+	}
 }
 
 func (a *App) RecordingStatus() RecordingStatus {
@@ -645,6 +666,34 @@ func (a *App) AppendRecordingChunk(chunk AudioChunk) (RecordingStatus, error) {
 	return a.recording.status(), nil
 }
 
+// RecordingAudio 是收尾后的 WAV，Data 直接作为 data URL 交给
+// 前端的转写流程；Bytes 用于诊断分片是否连续。
+type RecordingAudio struct {
+	Data  string `json:"data"`
+	Bytes int    `json:"bytes"`
+}
+
+// FinalizeRecording 取走当前会话并把 PCM 拼成 16 kHz WAV。
+// 前端拿到 data URL 后再走 TranscribeAudio，这样流式增量文本
+// 仍由前端订阅，音频数据则由后端持有。
+func (a *App) FinalizeRecording() (RecordingAudio, error) {
+	a.mu.Lock()
+	current := a.recording
+	a.recording = nil
+	a.mu.Unlock()
+	if current == nil {
+		return RecordingAudio{}, errors.New("no active recording")
+	}
+	wav := encodeRecordingWAV(current.data, current.sampleRate)
+	if len(wav) == 0 {
+		return RecordingAudio{}, errors.New("recording is empty")
+	}
+	return RecordingAudio{
+		Data:  "data:audio/wav;base64," + base64.StdEncoding.EncodeToString(wav),
+		Bytes: len(wav),
+	}, nil
+}
+
 // StopRecording 结束会话并把累积的音频交给同一条流水线。
 func (a *App) StopRecording(polish bool) (ProcessResult, error) {
 	a.mu.Lock()
@@ -654,15 +703,22 @@ func (a *App) StopRecording(polish bool) (ProcessResult, error) {
 	if current == nil {
 		return ProcessResult{}, errors.New("no active recording")
 	}
-	if len(current.data) == 0 {
+	wav := encodeRecordingWAV(current.data, current.sampleRate)
+	if len(wav) == 0 {
 		return ProcessResult{}, errors.New("recording is empty")
 	}
-	return a.ProcessAudio(AudioRequest{Data: base64.StdEncoding.EncodeToString(current.data), Filename: current.filename, MimeType: current.mimeType, Language: current.language, Prompt: current.prompt}, polish)
+	return a.ProcessAudio(AudioRequest{
+		Data:     base64.StdEncoding.EncodeToString(wav),
+		Filename: current.filename,
+		MimeType: "audio/wav",
+		Language: current.language,
+		Prompt:   current.prompt,
+	}, polish)
 }
 
-// CancelRecording 丢弃当前内存中的会话。桌面界面用浏览器
-// MediaRecorder 采集，再把最终 blob 交给 TranscribeAudio，
-// 因此这是该流程对应的清理操作。
+// CancelRecording 丢弃当前内存中的会话。桌面界面用 Web Audio
+// 采集，再把 WAV 交给 TranscribeAudio，因此这是该流程对应的
+// 清理操作。
 func (a *App) CancelRecording() (RecordingStatus, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

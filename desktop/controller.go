@@ -1,6 +1,6 @@
-// Package desktop 负责与宿主窗口相关、刻意放在模型与
-// 录音服务之外的行为。它由应用入口绑定到 Wails，
-// 并可按操作系统替换实现。
+// Package desktop 负责宿主窗口、全局热键与录音会话编排。它把
+// main/bubble/overlay 当成三个独立窗口：overlay 是唯一的采集
+// 宿主，另外两个只渲染后端会话状态。
 package desktop
 
 import (
@@ -18,33 +18,14 @@ import (
 )
 
 const (
-	ModeMain   = "main"
-	ModeBubble = "bubble"
-	// ModeOverlay 是隐藏态按热键叫出的底部胶囊形态，复用同一窗口与
-	// React 树；进出都走无动画路径，且全程不抢焦点（见 overlay.go）。
-	ModeOverlay = "overlay"
-
-	mainWidth     = 1000
-	mainHeight    = 820
-	mainMinWidth  = 640
-	mainMinHeight = 640
-	// 浮动窗顶部 92x92 是球，底部 34px 预留给悬停工具栏。固定
-	// 加高能让工具栏始终落在工作区内，也避免悬停时改窗口尺寸。
-	bubbleWidth  = 92
-	bubbleHeight = 126
-
-	// 首次进入浮动模式时，球停在当前屏幕工作区右下角，
-	// 与边缘留出一点呼吸空间。
-	bubbleRightInset  = 28
-	bubbleBottomInset = 56
-
-	// focusSettleDelay 失焦后稍等再复核，焦点短暂交接（如弹窗、
-	// 子控件）不应把主窗口误收成悬浮球。
-	focusSettleDelay = 250 * time.Millisecond
+	// overlayHideGrace 是会话结束后的隐藏宽限：胶囊里的 Check/X
+	// 约 320ms，留 400ms 再销毁窗口，宽限内连按热键可以复用同一个
+	// 采集宿主。
+	overlayHideGrace = 400 * time.Millisecond
 )
 
-// State 刻意保持精简且易于 JSON 序列化：原生控制器掌管真实窗口，
-// React 外壳只管自己的视觉状态。
+// State 是桌面外壳的全局状态。窗口角色与是否只剩托盘分开表达：
+// Mode 是当前主可见面，BubbleHidden 决定恢复入口。
 type State struct {
 	Mode             string `json:"mode"`
 	Hotkey           string `json:"hotkey"`
@@ -54,154 +35,123 @@ type State struct {
 	KeepBubbleOnTop  bool   `json:"keepBubbleOnTop"`
 	RestoreClipboard bool   `json:"restoreClipboard"`
 	CanInjectText    bool   `json:"canInjectText"`
-	// BubbleHidden 表示悬浮球已隐藏、只剩托盘；设置开关读它判断可见性。
-	BubbleHidden bool `json:"bubbleHidden"`
-	// CloseRequested 表示关闭确认框正在显示，前端据此弹出 CloseDialog。
-	CloseRequested bool `json:"closeRequested"`
-	// Platform 和 Backdrop 让 React 外壳选择标题栏尺寸和画布样式；
-	// Backdrop 只是 CSS 提示，不再安装原生材质视图。
-	Platform string `json:"platform"`
-	Backdrop string `json:"backdrop"`
+	BubbleHidden     bool   `json:"bubbleHidden"`
+	CloseRequested   bool   `json:"closeRequested"`
+	Platform         string `json:"platform"`
+	Backdrop         string `json:"backdrop"`
 }
 
-// Controller 持有唯一的 Wails v3 窗口，并在主窗口与浮动球之间
-// 切换它的尺寸、置顶和 macOS chrome。浮动球的主操作由前端
-// 悬停工具栏提供，右键菜单只保留隐藏与退出（见 menu.go）。
+// SessionMetrics 镜像前端 CallMetrics，字段名与现有历史记录一致。
+type SessionMetrics struct {
+	ASR *backend.CallRecord `json:"asr,omitempty"`
+	LLM *backend.CallRecord `json:"llm,omitempty"`
+}
+
+// SessionState 是所有窗口共享的唯一会话状态。录音中的实时文本由
+// overlay 采集宿主写入，main/bubble 只读；窗口销毁不会带走它。
+type SessionState struct {
+	Status         string         `json:"status"`
+	Stage          string         `json:"stage,omitempty"`
+	Transcript     string         `json:"transcript"`
+	Organized      string         `json:"organized"`
+	Metrics        SessionMetrics `json:"metrics"`
+	StageStartedAt int64          `json:"stageStartedAt,omitempty"`
+	Revision       uint64         `json:"revision"`
+	Host           string         `json:"host,omitempty"`
+}
+
+// SessionCommand 是发给 overlay 采集宿主的控制命令。宿主窗口可能
+// 比命令晚挂载，所以先入队，前端就绪后再领取。
+type SessionCommand struct {
+	Kind string `json:"kind"`
+}
+
+const (
+	sessionCommandToggle = "toggle"
+	sessionCommandCancel = "cancel"
+)
+
+// Controller 持有窗口编排、热键和会话状态。windows 里最多同时存在
+// 一个可见面（main/bubble）和一个 overlay 采集宿主。
 type Controller struct {
 	app     *backend.App
 	desktop *application.App
-	window  *application.WebviewWindow
 
-	mu           sync.RWMutex
-	mode         string
+	mu      sync.RWMutex
+	started bool
+	// windowMu 串行化窗口创建/销毁，避免两个入口同时建出同名窗口。
+	windowMu sync.Mutex
+
+	visible string
+	windows map[string]*application.WebviewWindow
+	// closeAllowed 按窗口记录“这是控制器主动关闭”。用户点关闭时
+	// 不在表里，仍然走确认流程。不能用一个全局布尔值：旧主窗口的
+	// 延迟关闭可能晚于新主窗口创建。
+	closeAllowed sync.Map
+
+	mainBounds    application.Rect
+	hasMainBounds bool
+
+	session          SessionState
+	overlayHideTimer *time.Timer
+	// starting 覆盖「命令已发出、宿主还没发布 arming」的窗口期：
+	// 隐藏定时器不能在此时把采集宿主销毁。
+	starting        bool
+	commands        []SessionCommand
+	pendingSettings bool
+
 	hotkey       *hotkeyRegistration
 	reason       string
-	started      bool
 	targetWindow string
-	// 窗口切换是一次异步动画：transitioning 期间 SetMode 直接
-	// 忽略新请求，避免两次动画互相追着改 frame。
-	transitioning    bool
-	transitionCancel chan struct{}
-	// lastMainBounds 只在内存里记住收起前的主窗口位置，重启后
-	// 回到默认尺寸，不引入新的配置字段。
-	lastMainBounds    application.Rect
-	hasLastMainBounds bool
-	reduceMotion      bool
-	// tray 是平台装配的系统托盘，Linux 为 nil；sessionStatus 镜像前端
-	// 录音会话状态，overlayHideTimer 在回到 idle 后宽限隐藏胶囊。
-	tray             *tray
-	sessionStatus    string
-	overlayHideTimer *time.Timer
-	// pendingHotkeys 缓存先于前端订阅到达的全局热键，TakeRecordingHotkeys
-	// 领取后清空，保证第一次按键不丢、多次通知只触发一次。
-	pendingHotkeys []RecordingHotkey
-	// closePending 表示关闭确认框正在显示；closeMu 串行化关闭流程。
+	tray         *tray
+
 	closePending bool
 	closeMu      sync.Mutex
-	// quitting 表示正在真正退出；WindowClosing 钩子据此放行，不弹确认框。
-	quitting bool
+	quitting     bool
 }
 
-// RecordingHotkey 是一次全局热键的快照：模式决定前端投递方式，
-// Target 是按键瞬间的粘贴目标，随键入队供前端领取。
-type RecordingHotkey struct {
-	Mode   string `json:"mode"`
-	Target string `json:"target"`
-}
-
-type point struct {
-	X int
-	Y int
-}
-
-func NewController(app *backend.App, desktop *application.App, window *application.WebviewWindow) *Controller {
+func NewController(app *backend.App, desktop *application.App) *Controller {
 	return &Controller{
-		app:           app,
-		desktop:       desktop,
-		window:        window,
-		mode:          ModeMain,
-		sessionStatus: "idle",
+		app:     app,
+		desktop: desktop,
+		visible: ModeMain,
+		windows: make(map[string]*application.WebviewWindow),
+		session: SessionState{Status: "idle", Host: ModeOverlay},
 	}
 }
 
-// ServiceStartup 由 Wails 在应用启动时调用：注册快捷键、准备
-// 首击补丁，并在用户选择了「以悬浮球启动」时先切到 92x92。
+// ServiceStartup 装配托盘与热键，并按用户偏好创建初始窗口。
+// 选择「仅保留托盘」时不创建任何窗口，首次热键再拉起 overlay。
 func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
 	c.mu.Lock()
 	c.started = true
 	c.mu.Unlock()
 
-	// 原生 chrome 和首击补丁必须在窗口第一次显示前准备好；
-	// 其他应用在前台时，浮动球仍然要能响应第一次点击。
 	enableFirstMouseClick()
 	c.refreshHotkey()
 	// 托盘在 ServiceStartup 装配：SystemTray.New() 的原生 run 由 Wails
 	// 推迟到 app.Run 之后，这里创建正合适，绝不手动 Run()。
 	c.tray = newTray(c)
 
-	if c.window != nil {
-		// 失焦自动收起：主窗口不在前台时收成悬浮球，让录音指示留在屏上。
-		lostFocus := events.Common.WindowLostFocus
-		if runtime.GOOS == "windows" {
-			// 子控件交接键盘焦点也会触发失焦，这里只关心顶层窗口失活。
-			lostFocus = events.Windows.WindowInactive
-		}
-		c.window.OnWindowEvent(lostFocus, func(*application.WindowEvent) {
-			c.scheduleBackgroundCheck()
-		})
-		// 系统关闭按钮先交给确认框，不直接退出（托盘常驻）。
-		c.window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-			c.mu.RLock()
-			quitting := c.quitting
-			c.mu.RUnlock()
-			if !quitting {
-				event.Cancel()
-				go func() { _ = c.RequestClose() }()
-			}
-		})
-		// NativeWindow() 要等平台窗口真正创建后才可用。运行时
-		// 就绪后按当前模式补一次 chrome，覆盖「以球启动」和
-		// 首次显示时窗口尚未创建的情况。
-		c.window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
-			// 悬停桥必须在窗口第一次显示前装好；动画守卫只影响
-			// chrome 与位置，不应连带跳过它。
-			enableBubbleHoverTracking(c.window.NativeWindow())
-			c.syncBubbleHoverTracking()
-			// 动画中途的 RuntimeReady 不能按当前模式重刷 chrome，
-			// 否则会把刚切好的 borderless 或位置覆盖掉。
-			if c.isTransitioning() {
-				return
-			}
-			c.applyWindowChrome()
-			// 启动时屏幕缓存可能还没就绪，等 WebView 运行时准备好后
-			// 再按保存位置放一次浮动球。
-			c.positionBubbleIfNeeded()
-			// WKWebView 不能在 Hidden:true 的窗口上初始化（会白屏），
-			// 隐藏态启动只能等运行时就绪、chrome 与位置落定后再 Hide。
-			if c.app != nil && c.app.GetDesktopConfig().BubbleHidden {
-				c.window.Hide()
-			}
-			c.scheduleBackgroundCheck()
-		})
+	cfg := backend.DesktopConfig{}
+	if c.app != nil {
+		cfg = c.app.GetDesktopConfig()
 	}
-
-	if c.app != nil && c.app.GetDesktopConfig().StartInBubble {
-		// 启动路径不能播动画：窗口还没显示，前端也还没准备好遮罩。
-		if err := c.applyModeImmediately(ModeBubble); err != nil {
-			return err
-		}
-		// 隐藏态启动不主动显示，避免 RuntimeReady 隐藏前先闪一帧。
-		if !c.app.GetDesktopConfig().BubbleHidden {
-			c.showWindow()
-		}
+	switch {
+	case cfg.BubbleHidden:
+		c.mu.Lock()
+		c.visible = ""
+		c.mu.Unlock()
+	case cfg.StartInBubble:
+		c.showBubbleInternal(true)
+	default:
+		c.showMainInternal(true)
 	}
+	c.emitState()
 	return nil
 }
 
 func (c *Controller) ServiceShutdown() error {
-	// 先停掉在途动画，再保存位置：展开途中退出时不能把中间的
-	// 窗口坐标写成悬浮球位置。
-	c.cancelTransition()
 	_ = c.persistBubblePosition()
 
 	c.mu.Lock()
@@ -215,10 +165,9 @@ func (c *Controller) ServiceShutdown() error {
 	}
 	tray := c.tray
 	c.tray = nil
+	c.quitting = true
 	c.mu.Unlock()
 
-	// Destroy 会触发原生同步回调，放在控制器锁外执行，避免与
-	// 回调里可能读取的状态互相等待。
 	if tray != nil {
 		tray.destroy()
 	}
@@ -227,12 +176,16 @@ func (c *Controller) ServiceShutdown() error {
 
 func (c *Controller) GetState() State {
 	c.mu.RLock()
-	mode := c.mode
+	visible := c.visible
 	registration := c.hotkey
 	reason := c.reason
 	closePending := c.closePending
 	c.mu.RUnlock()
 
+	mode := visible
+	if mode == "" {
+		mode = ModeHidden
+	}
 	var cfg backend.DesktopConfig
 	if c.app != nil {
 		cfg = c.app.GetDesktopConfig()
@@ -258,600 +211,290 @@ func (c *Controller) GetState() State {
 	return state
 }
 
-func (c *Controller) SetMode(mode string) error {
-	if mode != ModeMain && mode != ModeBubble && mode != ModeOverlay {
-		return fmt.Errorf("unknown desktop mode %q", mode)
-	}
-	if err := c.ensureRuntime(); err != nil {
-		return err
-	}
-
-	window := c.window
-	// 全屏切换过程中改窗口样式或尺寸会让 AppKit 进入不一致状态；
-	// 先退出全屏，等系统完成动画再继续。
-	if window.IsFullscreen() {
-		window.UnFullscreen()
-		for attempt := 0; attempt < 20 && window.IsFullscreen(); attempt++ {
-			time.Sleep(25 * time.Millisecond)
-		}
-	}
-
-	c.mu.RLock()
-	current := c.mode
-	transitioning := c.transitioning
-	reduceMotion := c.reduceMotion
-	c.mu.RUnlock()
-
-	// 动画期间的重复请求直接忽略：顶栏已禁用，右键菜单也可能
-	// 在窗口还没落定时被触发，排队只会让 frame 来回抖。
-	if transitioning || current == mode {
-		return nil
-	}
-	// overlay 进出一律无动画：它复用悬浮球 chrome，且不能与收起/
-	// 展开的 transitioning 状态机抢 frame。
-	if reduceMotion || mode == ModeOverlay {
-		return c.applyModeImmediately(mode)
-	}
-	return c.beginTransition(mode)
-}
-
-// SetReduceMotion 由前端把 prefers-reduced-motion 同步过来。原生
-// 窗口动画读不到 CSS 媒体查询，只能由宿主代为关掉。
-func (c *Controller) SetReduceMotion(enabled bool) error {
-	c.mu.Lock()
-	c.reduceMotion = enabled
-	c.mu.Unlock()
-	return nil
-}
-
-func (c *Controller) isTransitioning() bool {
+func (c *Controller) GetSession() SessionState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.transitioning
+	return c.session
 }
 
-// cancelTransition 让在途动画在下一帧退出。关闭通道而不是等
-// goroutine 自己结束，退出流程才不会被一帧 frame 卡住。
-func (c *Controller) cancelTransition() {
-	c.mu.Lock()
-	if c.transitionCancel != nil {
-		close(c.transitionCancel)
-		c.transitionCancel = nil
+// PublishSession 由采集宿主写入会话状态。revision 由后端递增，
+// 前端据此丢弃乱序事件。
+func (c *Controller) PublishSession(state SessionState) error {
+	switch state.Status {
+	case "idle", "arming", "recording", "processing":
+	default:
+		return fmt.Errorf("unknown session status %q", state.Status)
 	}
-	c.transitioning = false
-	c.mu.Unlock()
-}
-
-// beginTransition 负责收起/展开的公共编排：先占住 transitioning，
-// 再计算两端矩形、切 chrome、放宽尺寸约束，最后交给动画协程。
-func (c *Controller) beginTransition(mode string) error {
-	window := c.window
+	switch state.Stage {
+	case "", "transcribe", "organize":
+	default:
+		return fmt.Errorf("unknown session stage %q", state.Stage)
+	}
 
 	c.mu.Lock()
-	if c.transitioning || c.mode == mode {
-		c.mu.Unlock()
-		return nil
-	}
-	c.transitioning = true
-	cancel := make(chan struct{})
-	c.transitionCancel = cancel
+	c.starting = false
+	state.Host = ModeOverlay
+	state.Revision = c.session.Revision + 1
+	c.session = state
+	c.scheduleOverlayHide(state.Status)
 	c.mu.Unlock()
 
-	direction := transitionShrink
-	// 展开不使用锚点；收起在下面按球的左右位置重算。
-	anchor := anchorTopRight
-	var from, to application.Rect
-	var mainBounds application.Rect
-	rememberMain := false
-
-	if mode == ModeBubble {
-		// 先记下主窗口位置；它必须是切换 chrome 之前的值。
-		mainBounds = window.Bounds()
-		rememberMain = mainBounds.Width >= mainMinWidth &&
-			mainBounds.Height >= mainMinHeight
-		// borderless 可能带走标题栏高度，动画起点以切换后的
-		// 真实 frame 为准，否则第一帧会跳。
-		c.applyBubbleChrome(window)
-		from = window.Bounds()
-		to = c.bubbleRect()
-		anchor = bubbleAnchor(
-			to.X+to.Width/2,
-			mainBounds.X+mainBounds.Width/2,
-		)
-		// 收缩过程中保持可见；最终置顶跟随用户配置。
-		window.SetAlwaysOnTop(true)
-	} else {
-		direction = transitionExpand
-		from = window.Bounds()
-		to = c.restoreMainTarget()
-		// 展开不画水滴；anchor 保留默认值，事件载荷保持一致。
-		// 悬浮球淡出期间仍置顶，落定后 applySettledMode 恢复普通层级。
-		window.SetAlwaysOnTop(true)
-	}
-
-	// 只有收起需要逐帧改 frame；展开是等球淡出后直接回到记忆
-	// 的主窗口位置。动画期间不能保留 92x126 的 max 或 640px 的
-	// min，否则中间帧会被系统夹住。
-	if mode == ModeBubble {
-		window.SetMaxSize(0, 0)
-		window.SetMinSize(0, 0)
-	}
-
-	if from.Width <= 0 || from.Height <= 0 || to.Width <= 0 || to.Height <= 0 {
-		// 原生窗口还没就绪或屏幕信息缺失：退回无动画路径，
-		// 至少保证模式和尺寸最终一致。
-		c.resetTransition(cancel)
-		return c.applyModeImmediately(mode)
-	}
-
-	if rememberMain {
-		c.rememberMainBounds(mainBounds)
-	}
-
-	// 动画开始前可能已经退出（关闭应用）；不要给已经取消的
-	// 切换再发事件或启动协程。
-	c.mu.RLock()
-	stillCurrent := c.transitionCancel == cancel
-	c.mu.RUnlock()
-	if !stillCurrent {
-		return nil
-	}
-
-	duration := shrinkDuration
-	var ease func(float64) float64 = easeInOutCubic
-	eventDuration := shrinkDuration
-	if mode == ModeMain {
-		// 展开没有逐帧动画：这 160ms 只用来让悬浮球淡出，
-		// 然后把窗口直接放回记忆的位置。
-		duration = 0
-		ease = nil
-		eventDuration = expandLeadIn
-	}
-	c.emitTransition(transitionEvent{
-		Direction:  direction,
-		DurationMs: int(eventDuration / time.Millisecond),
-		Anchor:     anchor,
-		From:       boundsFromRect(from),
-		To:         boundsFromRect(to),
-	})
-	go c.runTransition(mode, from, to, duration, ease, cancel)
+	c.emitSession()
 	return nil
 }
 
-// runTransition 先等前端挂好遮罩、悬浮球淡出。收起逐帧推进
-// 窗口 frame，展开直接把窗口落到记忆位置。defer 保证无论完成、
-// 取消还是异常都不会把 transitioning 永久留在 true。
-func (c *Controller) runTransition(
-	mode string,
-	from, to application.Rect,
-	duration time.Duration,
-	ease func(float64) float64,
-	cancel chan struct{},
-) {
-	defer func() {
-		c.mu.Lock()
-		// 只清自己这一次的标记；cancelTransition 已经清过时
-		// 不能顺手把之后可能开始的新切换也关掉。
-		if c.transitionCancel == cancel {
-			c.transitionCancel = nil
-			c.transitioning = false
-		}
-		c.mu.Unlock()
-	}()
-
-	leadIn := shrinkLeadIn
-	if mode == ModeMain {
-		leadIn = expandLeadIn
+// scheduleOverlayHide 在会话回到 idle 后安排销毁采集宿主；新会话
+// 开始时取消旧定时器。调用方必须持有 c.mu。
+func (c *Controller) scheduleOverlayHide(next string) {
+	if c.overlayHideTimer != nil {
+		c.overlayHideTimer.Stop()
+		c.overlayHideTimer = nil
 	}
-	select {
-	case <-time.After(leadIn):
-	case <-cancel:
+	if next != "idle" || c.windows[ModeOverlay] == nil {
 		return
 	}
-
-	// 展开只等悬浮球淡出，随后直接把原生窗口放到记忆的位置；
-	// 窗口在屏幕上移动的过程不可见，用户看到的是主界面在
-	// 原来的位置淡入，而不是悬浮球飞过去。
-	if mode == ModeMain {
-		c.applySettledMode(mode, to)
-		return
-	}
-
-	if !animateWindowBounds(from, to, duration, ease, c.setWindowBounds, cancel) {
-		return
-	}
-	c.applySettledMode(mode, to)
+	// 即使上一次也是 idle 也要排一次：麦克风启动失败时宿主会直接
+	// 回到 idle，胶囊必须自己消失，不能停在屏上。
+	c.overlayHideTimer = time.AfterFunc(overlayHideGrace, c.hideOverlayIfIdle)
 }
 
-// applySettledMode 把窗口落到最终状态并通知 React 换路由。chrome、
-// 尺寸约束和 bounds 的顺序不能反：styleMask 切换可能改变 frame，
-// 所以最后一次 setWindowBounds 必须在恢复 chrome 之后。展开时先
-// 移窗口再恢复 chrome，避免交通灯在球窗位置闪一帧。
-func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
-	window := c.window
-	if window == nil {
+func (c *Controller) emitSession() {
+	if c.desktop == nil {
 		return
 	}
-	// 先把约束放开再落 bounds：收起的 92px max 或展开的 640px min
-	// 如果还生效，会在窗口移动到目标位置前先夹一帧。
-	window.SetMaxSize(0, 0)
-	window.SetMinSize(0, 0)
-	switch mode {
-	case ModeBubble, ModeOverlay:
-		// 悬浮球与胶囊共用 borderless 透明 chrome；先切 chrome 再落
-		// bounds，styleMask 变化可能改 frame。
-		c.applyBubbleChrome(window)
-		c.setWindowBounds(bounds)
-	default:
-		// 展开时先把透明窗口移到主窗口位置，再恢复 titled chrome；
-		// 反过来会让交通灯在 92px 的球窗位置闪一下。chrome 切换
-		// 可能改 frame，所以最后再落一次 bounds。
-		c.setWindowBounds(bounds)
-		c.applyMainChrome(window)
-		c.setWindowBounds(bounds)
-	}
-	switch mode {
-	case ModeBubble:
-		window.SetMaxSize(bubbleWidth, bubbleHeight)
-		window.SetMinSize(bubbleWidth, bubbleHeight)
-		window.SetAlwaysOnTop(c.keepBubbleOnTop())
-	case ModeOverlay:
-		window.SetMaxSize(overlayWidth, overlayHeight)
-		window.SetMinSize(overlayWidth, overlayHeight)
-		// 胶囊强制置顶，浮在用户当前应用之上；但绝不 Focus，
-		// 否则自动粘贴会粘回拾语自己（见 overlay.go showOverlay）。
-		window.SetAlwaysOnTop(true)
-	default:
-		window.SetMaxSize(0, 0)
-		window.SetMinSize(mainMinWidth, mainMinHeight)
-		window.SetAlwaysOnTop(false)
-	}
-
-	c.mu.Lock()
-	c.mode = mode
-	c.mu.Unlock()
-	c.syncBubbleHoverTracking()
-	if mode == ModeMain {
-		// 从悬浮球展开时应用可能不在前台；落定后主动取得焦点，
-		// 否则窗口虽然恢复在原位，仍会被其他应用盖住。
-		window.Focus()
-	}
-	c.emitState()
+	c.desktop.Event.Emit("desktop:session", c.GetSession())
 }
 
-// applyModeImmediately 是启动、减少动效和异常回退共用的无动画
-// 路径：直接切 chrome、约束和 bounds，然后发一次状态。
-func (c *Controller) applyModeImmediately(mode string) error {
+// PublishMicLevel 把采集宿主的电平广播给可见窗口。波形和球的缩放
+// 都读这个值，频率约 20Hz，不进 React 状态。
+func (c *Controller) PublishMicLevel(level float64) {
+	if c.desktop == nil {
+		return
+	}
+	if level < 0 {
+		level = 0
+	}
+	if level > 1 {
+		level = 1
+	}
+	c.desktop.Event.Emit("desktop:mic-level", map[string]float64{"level": level})
+}
+
+// ToggleRecording 是热键和所有视图共用的入口：确保采集宿主存在，
+// 再把 toggle 命令交给它。全程不 Focus 任何窗口。
+func (c *Controller) ToggleRecording() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	window := c.window
-	if mode == ModeOverlay {
-		// 胶囊从隐藏态叫出，不记忆主窗口位置；几何固定底部居中。
-		c.applySettledMode(mode, c.overlayRect())
-		return nil
+	c.mu.Lock()
+	if c.overlayHideTimer != nil {
+		c.overlayHideTimer.Stop()
+		c.overlayHideTimer = nil
 	}
-	if mode == ModeBubble {
-		c.mu.RLock()
-		current := c.mode
-		c.mu.RUnlock()
-		if current == ModeMain {
-			c.rememberMainBounds(window.Bounds())
-		}
-		c.applySettledMode(mode, c.bubbleRect())
-		return nil
+	if c.session.Status == "idle" {
+		c.starting = true
 	}
-	c.applySettledMode(mode, c.restoreMainTarget())
+	c.mu.Unlock()
+	c.showOverlayInternal()
+	c.pushCommand(sessionCommandToggle)
 	return nil
 }
 
-func (c *Controller) resetTransition(cancel chan struct{}) {
+func (c *Controller) CancelTranscription() error {
+	if err := c.ensureRuntime(); err != nil {
+		return err
+	}
+	c.mu.RLock()
+	active := c.session.Status != "idle"
+	hasOverlay := c.windows[ModeOverlay] != nil
+	c.mu.RUnlock()
+	if !active && !hasOverlay {
+		return nil
+	}
+	c.mu.Lock()
+	if c.overlayHideTimer != nil {
+		c.overlayHideTimer.Stop()
+		c.overlayHideTimer = nil
+	}
+	c.mu.Unlock()
+	c.showOverlayInternal()
+	c.pushCommand(sessionCommandCancel)
+	return nil
+}
+
+func (c *Controller) pushCommand(kind string) {
+	c.mu.Lock()
+	c.commands = append(c.commands, SessionCommand{Kind: kind})
+	c.mu.Unlock()
+	if c.desktop != nil {
+		c.desktop.Event.Emit("desktop:session-command")
+	}
+}
+
+// TakeSessionCommands 让 overlay 挂载时就领取早到的命令，第一次
+// 热键不会因为窗口还没订阅而丢失。
+func (c *Controller) TakeSessionCommands() []SessionCommand {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.transitionCancel == cancel {
-		c.transitionCancel = nil
-		c.transitioning = false
-	}
+	commands := c.commands
+	c.commands = nil
+	return commands
 }
 
-func (c *Controller) rememberMainBounds(bounds application.Rect) {
-	if bounds.Width < mainMinWidth || bounds.Height < mainMinHeight {
-		return
-	}
+// TakeMainCommands 返回主窗口挂载时需要补做的动作。目前只有
+// 「从悬浮球打开设置」这一种。
+func (c *Controller) TakeMainCommands() []string {
 	c.mu.Lock()
-	c.lastMainBounds = bounds
-	c.hasLastMainBounds = true
-	c.mu.Unlock()
-}
-
-// bubbleRect 计算悬浮球目标。保存位置仍落在某块屏幕上时沿用那块
-// 屏幕和坐标，否则回到当前屏幕的右下角。
-func (c *Controller) bubbleRect() application.Rect {
-	area := c.bubbleWorkArea()
-	var saved *point
-	if c.app != nil {
-		if position := c.app.GetDesktopConfig().BubblePosition; position != nil {
-			candidate := point{X: position.X, Y: position.Y}
-			if screen := c.screenAt(candidate); screen != nil {
-				area = screen.WorkArea
-				saved = &candidate
-			}
-		}
+	defer c.mu.Unlock()
+	if !c.pendingSettings {
+		return nil
 	}
-	return bubbleTargetBounds(area, saved)
+	c.pendingSettings = false
+	return []string{"settings"}
 }
 
-func (c *Controller) bubbleWorkArea() application.Rect {
-	if screen := c.windowScreen(); screen != nil {
-		return screen.WorkArea
-	}
-	// 没有屏幕信息时退回常见笔记本尺寸，与 v2 一致。
-	return application.Rect{Width: 1440, Height: 900}
-}
-
-// restoreMainTarget 返回收起前记住的主窗口矩形。屏幕布局变了
-// 或没有记录时，在悬浮球所在屏幕居中默认尺寸。
-func (c *Controller) restoreMainTarget() application.Rect {
-	c.mu.RLock()
-	last := c.lastMainBounds
-	hasLast := c.hasLastMainBounds
-	c.mu.RUnlock()
-
-	if hasLast {
-		center := point{X: last.X + last.Width/2, Y: last.Y + last.Height/2}
-		if screen := c.screenAt(center); screen != nil {
-			return clampRectToWorkArea(last, screen.WorkArea)
-		}
-	}
-
-	area := c.bubbleWorkArea()
-	return clampRectToWorkArea(centeredRect(area, mainWidth, mainHeight), area)
-}
-
-func (c *Controller) setWindowBounds(bounds application.Rect) {
-	if c.window == nil {
-		return
-	}
-	setNativeWindowBounds(c.window, bounds)
-}
-
-func (c *Controller) emitTransition(event transitionEvent) {
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:transition", event)
-	}
-}
-
-func (c *Controller) ToggleMode() error {
-	c.mu.RLock()
-	mode := c.mode
-	c.mu.RUnlock()
-	if mode == ModeBubble {
-		return c.SetMode(ModeMain)
-	}
-	return c.SetMode(ModeBubble)
-}
-
+// ShowMainWindow 销毁悬浮球并创建主窗口；overlay 采集宿主不受影响。
 func (c *Controller) ShowMainWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	// overlay 不参与展开动画：先无动画落到悬浮球形态，再走正常
-	// 展开，避免在胶囊路由上播放收起/展开遮罩。
-	c.mu.RLock()
-	mode := c.mode
-	c.mu.RUnlock()
-	if mode == ModeOverlay {
-		if err := c.applyModeImmediately(ModeBubble); err != nil {
-			return err
-		}
-		c.mu.RLock()
-		mode = c.mode
-		c.mu.RUnlock()
-	}
-	// 从仅托盘态打开主窗口即回到可见形态：清掉隐藏偏好并刷新状态，
-	// 否则托盘菜单的互斥启用与全局热键仍按隐藏态走，和主窗口不一致。
-	if c.app != nil && c.app.GetDesktopConfig().BubbleHidden {
-		if err := c.app.SetBubbleHidden(false); err != nil {
-			return err
-		}
-		c.emitState()
-	}
-	// 托盘菜单点击不会激活应用，窗口还可能最小化或正处在收起/展开
-	// 动画里：先停掉在途动画（否则 SetMode 会因 transitioning 早退，
-	// 窗口停在中间尺寸），再还原最小化——Show/Focus 都不会
-	// deminiaturize，最小化的窗口会一直留在 Dock 里「打不开」。
-	c.cancelTransition()
-	c.window.UnMinimise()
-	// IsVisible 读的是异步 occlusionState，被其他应用盖住或刚隐藏时
-	// 不可靠，不能当作是否需要 Show 的判据；这里无条件 Show，幂等
-	// 且能把窗口带到前台。
-	c.window.Show()
-	if mode == ModeMain {
-		// 已是主窗口形态时 SetMode 会早退，无法修复收起动画被中途
-		// 取消留下的中间尺寸：矩形仍够大就原位重刷 chrome，否则按
-		// 记忆位置恢复，避免把正常隐藏的主窗口重新居中。
-		bounds := c.window.Bounds()
-		if bounds.Width < mainMinWidth || bounds.Height < mainMinHeight {
-			bounds = c.restoreMainTarget()
-		}
-		c.applySettledMode(ModeMain, bounds)
-		return nil
-	}
-	// 悬浮球形态：先以球形态可见并聚焦，再开始长大，否则动画可能
-	// 在一个不可见的窗口上播放。
-	c.applyWindowChrome()
-	c.positionBubbleIfNeeded()
-	c.window.Focus()
-	return c.SetMode(ModeMain)
+	c.showMainInternal(true)
+	return nil
 }
 
+// EnterBubble 销毁主窗口并把可见面换成悬浮球。
+func (c *Controller) EnterBubble() error {
+	if err := c.ensureRuntime(); err != nil {
+		return err
+	}
+	c.showBubbleInternal(true)
+	return nil
+}
+
+// OpenSettings 展开主窗口并请求渲染层打开偏好设置。主窗口刚创建时
+// 事件可能早于订阅，因此走 pendingSettings 由前端领取。
+func (c *Controller) OpenSettings() error {
+	if err := c.ensureRuntime(); err != nil {
+		return err
+	}
+	hasMain := c.current(ModeMain) != nil
+	if !hasMain {
+		// 必须在创建窗口前登记：前端挂载后立刻会来领取命令。
+		c.mu.Lock()
+		c.pendingSettings = true
+		c.mu.Unlock()
+	}
+	c.showMainInternal(true)
+	if hasMain {
+		c.emitSettings()
+	}
+	return nil
+}
+
+// SetBubbleHidden 切换「仅保留托盘」。会话进行中隐藏不会丢录音：
+// overlay 采集宿主保持可见，等 idle 后由隐藏定时器销毁。
+func (c *Controller) SetBubbleHidden(hidden bool) error {
+	if hidden && !traySupported() {
+		return errors.New("hiding the bubble requires a system tray on this platform")
+	}
+	if err := c.ensureRuntime(); err != nil {
+		return err
+	}
+	if c.app != nil {
+		if err := c.app.SetBubbleHidden(hidden); err != nil {
+			return err
+		}
+	}
+	if hidden {
+		c.rememberMainBounds(c.current(ModeMain))
+		c.detachAndClose(ModeMain)
+		c.detachAndClose(ModeBubble)
+		if c.sessionActive() {
+			// 录音/整理仍在进行：胶囊作为采集宿主必须继续存在。
+			c.showOverlayInternal()
+			c.setVisible(ModeOverlay)
+		} else {
+			c.detachAndClose(ModeOverlay)
+			c.setVisible("")
+		}
+	} else {
+		// 恢复可见面。会话进行中时胶囊不销毁，继续采集。
+		c.showBubbleInternal(true)
+	}
+	c.emitState()
+	return nil
+}
+
+// HideWindow 只隐藏当前界面、不写偏好；Linux 没有托盘时悬浮球
+// 右键菜单退回这里。
 func (c *Controller) HideWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	// 动画途中隐藏会把窗口停在中间尺寸，下一次展开就找不到
-	// 正确的悬浮球矩形；直接忽略这次请求。
-	if c.isTransitioning() {
-		return nil
+	c.rememberMainBounds(c.current(ModeMain))
+	c.detachAndClose(ModeMain)
+	c.detachAndClose(ModeBubble)
+	if c.sessionActive() {
+		c.showOverlayInternal()
+		c.setVisible(ModeOverlay)
+	} else {
+		c.detachAndClose(ModeOverlay)
+		c.setVisible("")
 	}
-	_ = c.persistBubblePosition()
-	// 窗口隐藏后收不到 mouseExited，先让前端清掉悬停态，下次
-	// 显示时不会带着工具栏出现。
-	c.window.ExecJS("window.__shiyuBubbleHover&&window.__shiyuBubbleHover(false)")
-	c.window.Hide()
+	c.emitState()
 	return nil
 }
 
 // MinimiseWindow 支撑 Windows/Linux 的自绘标题栏按钮；
 // macOS 窗口改用系统自带的黄色交通灯。
 func (c *Controller) MinimiseWindow() error {
-	if err := c.ensureMainMode(); err != nil {
+	window, err := c.mainWindow()
+	if err != nil {
 		return err
 	}
-	c.window.Minimise()
+	window.Minimise()
 	return nil
 }
 
 // ToggleMaximiseWindow 支撑 Windows/Linux 的自绘标题栏按钮。
 func (c *Controller) ToggleMaximiseWindow() error {
-	if err := c.ensureMainMode(); err != nil {
+	window, err := c.mainWindow()
+	if err != nil {
 		return err
 	}
-	c.window.ToggleMaximise()
+	window.ToggleMaximise()
 	return nil
 }
 
-// IsWindowMaximised 让 React 标题栏在最大化与还原图标之间
-// 选择；控制器尚未启动时返回 false。
+// IsWindowMaximised 让 React 标题栏在最大化与还原图标之间选择。
 func (c *Controller) IsWindowMaximised() bool {
-	if err := c.ensureMainMode(); err != nil {
-		return false
-	}
-	return c.window.IsMaximised()
+	window := c.current(ModeMain)
+	return window != nil && window.IsMaximised()
 }
 
-// SaveBubblePosition 持久化用户放下浮动圆圈的位置。渲染层
-// 会在拖拽结束时上报；控制器在窗口隐藏或应用退出时也会
-// 调用它，因为拖拽可能在没有干净 mouse-up 事件的情况下
-// 结束。
+// SaveBubblePosition 持久化用户放下悬浮球的位置。拖拽结束、隐藏
+// 或退出时都会调用它。
 func (c *Controller) SaveBubblePosition() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	c.mu.RLock()
-	mode := c.mode
-	transitioning := c.transitioning
-	c.mu.RUnlock()
-	if mode != ModeBubble || transitioning {
-		return nil
-	}
 	return c.persistBubblePosition()
 }
 
-func (c *Controller) persistBubblePosition() error {
-	if c.app == nil || c.window == nil {
+// ApplyDesktopSettings 让已存在的悬浮球立即跟随「保持置顶」开关；
+// 其余偏好在下一次创建窗口时生效。
+func (c *Controller) ApplyDesktopSettings() error {
+	if c.app == nil {
 		return nil
 	}
-	c.mu.RLock()
-	mode := c.mode
-	started := c.started
-	transitioning := c.transitioning
-	c.mu.RUnlock()
-	// 展开途中窗口正在移动，此时保存会覆盖掉用户原来拖到的
-	// 悬浮球坐标；退出流程会先 cancelTransition 再走到这里。
-	if !started || transitioning || mode != ModeBubble || !c.window.IsVisible() {
-		return nil
+	window := c.current(ModeBubble)
+	if window != nil {
+		window.SetAlwaysOnTop(c.app.GetDesktopConfig().KeepBubbleOnTop)
 	}
-
-	// v3 的窗口坐标是绝对屏幕坐标。用户可能在拖拽后拔掉副屏，
-	// 因此保存前按窗口中心所在屏幕的工作区再钳制一次。
-	x, y := c.window.Position()
-	center := point{X: x + bubbleWidth/2, Y: y + bubbleHeight/2}
-	position := clampPoint(point{X: x, Y: y}, c.workAreaAt(center))
-
-	cfg := c.app.GetDesktopConfig()
-	if cfg.BubblePosition != nil &&
-		cfg.BubblePosition.X == position.X &&
-		cfg.BubblePosition.Y == position.Y {
-		return nil
-	}
-	cfg.BubblePosition = &backend.BubblePosition{X: position.X, Y: position.Y}
-	return c.app.SaveDesktopConfig(cfg)
-}
-
-func (c *Controller) positionBubble() {
-	if c.window == nil {
-		return
-	}
-	c.setWindowBounds(c.bubbleRect())
-}
-
-// OpenSettings 展开主窗口，并请求渲染层打开偏好设置对话框，
-// 对应浮动球悬停工具栏里的设置图标。
-func (c *Controller) OpenSettings() error {
-	if err := c.ShowMainWindow(); err != nil {
-		return err
-	}
-	c.emitSettings()
 	return nil
 }
 
-func (c *Controller) emitState() {
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:state", c.GetState())
-	}
-	if c.tray != nil {
-		c.tray.syncVisibility()
-	}
-}
-
-func (c *Controller) emitSettings() {
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:settings")
-	}
-}
-
-// enqueueHotkey 记录一次全局热键并通知前端领取。模式与粘贴目标随键
-// 一起入队，前端订阅前的第一次按键不会丢。
-func (c *Controller) enqueueHotkey(mode, target string) {
-	c.mu.Lock()
-	c.pendingHotkeys = append(c.pendingHotkeys, RecordingHotkey{Mode: mode, Target: target})
-	c.mu.Unlock()
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:hotkey")
-	}
-}
-
-// TakeRecordingHotkeys 让第一次按键可以先于前端订阅到达，多次通知只领取一次。
-func (c *Controller) TakeRecordingHotkeys() []RecordingHotkey {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	keys := c.pendingHotkeys
-	c.pendingHotkeys = nil
-	return keys
-}
-
-// scheduleBackgroundCheck 失焦后稍等再复核，避免焦点短暂交接误收起。
-func (c *Controller) scheduleBackgroundCheck() {
-	time.AfterFunc(focusSettleDelay, c.collapseInactiveMain)
-}
-
-// collapseInactiveMain 主窗口不在前台时收成悬浮球，让录音指示留在屏上；
-// 隐藏/胶囊/动画途中不干预。
-func (c *Controller) collapseInactiveMain() {
-	c.mu.RLock()
-	eligible := c.started && c.mode == ModeMain && !c.transitioning
-	c.mu.RUnlock()
-	if !eligible || c.window == nil {
-		return
-	}
-	if c.window.IsVisible() && !mainWindowInForeground(c.window) {
-		_ = c.SetMode(ModeBubble)
-	}
-}
-
-// Quit 通过 Wails 的应用管理器退出桌面进程。无边框窗口隐藏了
-// 原生标题栏关闭按钮，因此需要暴露这个方法。
+// Quit 通过 Wails 的应用管理器退出桌面进程。
 func (c *Controller) Quit() {
 	c.mu.Lock()
 	c.quitting = true
@@ -861,8 +504,7 @@ func (c *Controller) Quit() {
 	}
 }
 
-// CopyText 直接写系统剪贴板，不需要浏览器权限弹窗，
-// 结果卡片和键盘快捷键都会用到它。
+// CopyText 直接写系统剪贴板，不需要浏览器权限弹窗。
 func (c *Controller) CopyText(text string) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("text is empty")
@@ -876,10 +518,7 @@ func (c *Controller) CopyText(text string) error {
 	return nil
 }
 
-// PasteText 把文本输入到当前应用：先更新剪贴板，
-// 再用当前平台最稳妥的方式发送粘贴按键。
-// 没有可用的宿主注入器时，文本会留在剪贴板里，
-// 用户仍能手动粘贴，结果不会丢。
+// PasteText 把文本输入到当前应用：先更新剪贴板，再发送粘贴键。
 func (c *Controller) PasteText(text string) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("text is empty")
@@ -940,33 +579,14 @@ func (c *Controller) refreshHotkey() {
 	}
 	cfg := c.app.GetDesktopConfig()
 	registration, err := registerHotkey(cfg.Hotkey, func() {
-		// 在 Wails 窗口收到任何结果事件前，先记下当时
-		// 拥有焦点的应用；自动粘贴正是靠它回到发起
-		// 快捷键的编辑器或聊天应用。
-		target := activeWindowID()
-		if target != "" {
+		// 在窗口出现前记下当时拥有焦点的应用；自动粘贴靠它回到
+		// 发起快捷键的编辑器或聊天应用。
+		if target := activeWindowID(); target != "" {
 			c.mu.Lock()
 			c.targetWindow = target
 			c.mu.Unlock()
 		}
-		c.mu.RLock()
-		mode := c.mode
-		c.mu.RUnlock()
-		hidden := c.app.GetDesktopConfig().BubbleHidden
-		switch {
-		case mode == ModeOverlay && c.window != nil && c.window.IsVisible():
-			// 胶囊已在屏上：再按热键只结束录音，不重建窗口、不抢焦点。
-		case hidden:
-			// 隐藏态叫出底部胶囊，绝不 Focus，保住粘贴目标是原前台应用。
-			c.showOverlay()
-		default:
-			if c.window != nil {
-				c.showWindow()
-				c.window.Focus()
-			}
-		}
-		// 入队而非直接广播：前端订阅前的第一次按键也能被领取。
-		c.enqueueHotkey(mode, target)
+		_ = c.ToggleRecording()
 	})
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -978,131 +598,296 @@ func (c *Controller) refreshHotkey() {
 	c.reason = ""
 }
 
-func (c *Controller) ensureRuntime() error {
+func (c *Controller) onMainClosing(window *application.WebviewWindow, event *application.WindowEvent) {
 	c.mu.RLock()
-	started := c.started
-	window := c.window
+	quitting := c.quitting
 	c.mu.RUnlock()
-	if !started || window == nil {
-		return errors.New("desktop controller is not started")
-	}
-	return nil
-}
-
-func (c *Controller) ensureMainMode() error {
-	if err := c.ensureRuntime(); err != nil {
-		return err
-	}
-	c.mu.RLock()
-	mode := c.mode
-	transitioning := c.transitioning
-	c.mu.RUnlock()
-	// 动画期间窗口正在改尺寸，系统最小化/最大化会把中间 frame
-	// 写进 AppKit 的还原栈；等落定后再允许。
-	if transitioning {
-		return errors.New("window controls are unavailable during a transition")
-	}
-	if mode != ModeMain {
-		return errors.New("window controls are only available in main mode")
-	}
-	return nil
-}
-
-func (c *Controller) keepBubbleOnTop() bool {
-	if c.app == nil {
-		return true
-	}
-	return c.app.GetDesktopConfig().KeepBubbleOnTop
-}
-
-// showWindow 在显示后重新应用 chrome：Wails 的 macOS show()
-// 会按 Mac.DisableShadow 重置窗口阴影，把浮动球的透明边缘又画出来。
-func (c *Controller) showWindow() {
-	if c.window == nil {
+	if quitting {
 		return
 	}
-	c.window.Show()
-	// 悬停桥依赖原生 webview；显示后再补一次，覆盖窗口隐藏后
-	// 重新显示的情况，重复安装是安全的。
-	enableBubbleHoverTracking(c.window.NativeWindow())
-	c.syncBubbleHoverTracking()
-	// 动画途中热键也可能把窗口叫出来；这时不能按旧模式重刷
-	// chrome 或位置，否则会把收缩/展开的中间 frame 拽回去。
-	if c.isTransitioning() {
+	if _, allowed := c.closeAllowed.Load(window); allowed {
 		return
 	}
-	c.applyWindowChrome()
-
-	// 首次显示时 AppKit 会把窗口放到初始位置，可能覆盖 SetPosition
-	// 的落点。显示完成后再按保存的位置放一次。
-	c.positionBubbleIfNeeded()
+	event.Cancel()
+	go func() { _ = c.RequestClose() }()
 }
 
-func (c *Controller) positionBubbleIfNeeded() {
+func (c *Controller) showMainInternal(focus bool) {
+	if window := c.current(ModeMain); window != nil {
+		c.setVisible(ModeMain)
+		window.Show()
+		if focus {
+			window.Focus()
+		}
+		c.clearBubbleHidden()
+		c.emitState()
+		return
+	}
+	_ = c.persistBubblePosition()
+	c.detachAndClose(ModeBubble)
+	window := c.ensureWindow(ModeMain)
+	if window == nil {
+		return
+	}
+	c.setVisible(ModeMain)
+	window.Show()
+	if focus {
+		window.Focus()
+	}
+	c.clearBubbleHidden()
+	c.emitState()
+}
+
+func (c *Controller) showBubbleInternal(focus bool) {
+	if window := c.current(ModeMain); window != nil {
+		c.rememberMainBounds(window)
+		c.detachAndClose(ModeMain)
+	}
+	window := c.ensureWindow(ModeBubble)
+	if window == nil {
+		return
+	}
+	c.setVisible(ModeBubble)
+	window.Show()
+	if focus {
+		window.Focus()
+	}
+	c.clearBubbleHidden()
+	c.emitState()
+}
+
+// showOverlayInternal 确保采集宿主存在并显示胶囊。主窗口/悬浮球
+// 可见时它作为辅助录音提示，隐藏态时它就是唯一可见窗口。
+func (c *Controller) showOverlayInternal() {
+	if c.desktop == nil {
+		return
+	}
+	window := c.ensureWindow(ModeOverlay)
+	if window == nil {
+		return
+	}
+	setNativeWindowBounds(window, c.overlayRect())
+	window.SetAlwaysOnTop(true)
+	window.Show()
+	c.mu.Lock()
+	if c.visible == "" {
+		c.visible = ModeOverlay
+	}
+	c.mu.Unlock()
+	c.emitState()
+}
+
+func (c *Controller) emitSettings() {
+	if c.desktop != nil {
+		c.desktop.Event.Emit("desktop:settings")
+	}
+}
+
+func (c *Controller) emitState() {
+	if c.desktop == nil {
+		return
+	}
+	c.desktop.Event.Emit("desktop:state", c.GetState())
+	if c.tray != nil {
+		c.tray.syncVisibility()
+	}
+}
+
+func (c *Controller) ensureWindow(role string) *application.WebviewWindow {
+	if c.desktop == nil {
+		return nil
+	}
+	if window := c.current(role); window != nil {
+		return window
+	}
+
+	c.windowMu.Lock()
+	defer c.windowMu.Unlock()
+	if window := c.current(role); window != nil {
+		return window
+	}
+
+	rect := c.rectFor(role)
+	var opts application.WebviewWindowOptions
+	switch role {
+	case ModeMain:
+		opts = c.mainWindowOptions(rect)
+	case ModeBubble:
+		opts = c.bubbleWindowOptions(rect)
+	case ModeOverlay:
+		opts = c.overlayWindowOptions(rect)
+	default:
+		return nil
+	}
+	window := c.desktop.Window.NewWithOptions(opts)
+	if window == nil {
+		return nil
+	}
+
+	c.mu.Lock()
+	c.windows[role] = window
+	c.mu.Unlock()
+
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		c.prepareWindow(role, window, rect)
+	})
+	if role == ModeMain {
+		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			c.onMainClosing(window, event)
+		})
+	}
+	return window
+}
+
+func (c *Controller) prepareWindow(role string, window *application.WebviewWindow, rect application.Rect) {
+	if window == nil {
+		return
+	}
+	setNativeWindowBounds(window, rect)
+	if role != ModeBubble {
+		return
+	}
+	enableBubbleHoverTracking(window.NativeWindow())
+	setBubbleHoverTrackingEnabled(window.NativeWindow(), true)
+	// macOS 仍需要 cgo 把窗口切成真正 borderless；Windows/Linux 的
+	// 透明无边框由创建选项负责。
+	if runtime.GOOS == "darwin" {
+		setBubbleChrome(window.NativeWindow())
+	}
+}
+
+// detachAndClose 先摘掉窗口并立即隐藏，稍后才真正 Close。
+// 绑定调用（例如悬浮球的“展开”）返回后，Wails 还要把 HTTP 响应写回
+// 发起窗口；如果同步销毁，webview 已经没了，transport 会 SIGSEGV。
+func (c *Controller) detachAndClose(role string) {
+	c.windowMu.Lock()
+	c.mu.Lock()
+	window := c.windows[role]
+	delete(c.windows, role)
+	if role == ModeMain {
+		c.closePending = false
+	}
+	c.mu.Unlock()
+	c.windowMu.Unlock()
+
+	if window == nil {
+		return
+	}
+	window.Hide()
+	time.AfterFunc(250*time.Millisecond, func() {
+		c.closeAllowed.Store(window, true)
+		window.Close()
+		c.closeAllowed.Delete(window)
+	})
+}
+
+func (c *Controller) hideOverlayIfIdle() {
 	c.mu.RLock()
-	mode := c.mode
-	transitioning := c.transitioning
+	status := c.session.Status
+	visible := c.visible
+	starting := c.starting
+	pending := len(c.commands) > 0
+	window := c.windows[ModeOverlay]
 	c.mu.RUnlock()
-	if mode == ModeBubble && !transitioning {
-		c.positionBubble()
+	if status != "idle" || starting || pending || window == nil {
+		return
+	}
+	// 先隐藏，等绑定响应和最后一次状态发布都结束再真正关闭。
+	// 窗口暂时留在 map 里：宽限期内再来一次热键可以直接复用。
+	window.Hide()
+	if visible == ModeOverlay {
+		c.setVisible("")
+		c.emitState()
+	}
+	c.mu.Lock()
+	if c.overlayHideTimer != nil {
+		c.overlayHideTimer.Stop()
+	}
+	c.overlayHideTimer = time.AfterFunc(250*time.Millisecond, c.closeOverlayIfIdle)
+	c.mu.Unlock()
+}
+
+func (c *Controller) closeOverlayIfIdle() {
+	c.mu.Lock()
+	if c.session.Status != "idle" || c.starting || len(c.commands) > 0 {
+		c.overlayHideTimer = nil
+		c.mu.Unlock()
+		return
+	}
+	window := c.windows[ModeOverlay]
+	delete(c.windows, ModeOverlay)
+	c.overlayHideTimer = nil
+	c.mu.Unlock()
+	if window != nil {
+		window.Close()
 	}
 }
 
-// syncBubbleHoverTracking 只在浮动模式开启指针跟踪：主窗口面积大，
-// 每次鼠标移动都送进网页没有意义，也会增加 WebView 往返。
-func (c *Controller) syncBubbleHoverTracking() {
-	if c.window == nil {
-		return
+func (c *Controller) rectFor(role string) application.Rect {
+	switch role {
+	case ModeMain:
+		return c.mainRect()
+	case ModeBubble:
+		return c.bubbleRect()
+	case ModeOverlay:
+		return c.overlayRect()
+	default:
+		return c.workArea()
 	}
+}
+
+func (c *Controller) mainRect() application.Rect {
 	c.mu.RLock()
-	bubble := c.mode == ModeBubble
+	last := c.mainBounds
+	hasLast := c.hasMainBounds
 	c.mu.RUnlock()
-	setBubbleHoverTrackingEnabled(c.window.NativeWindow(), bubble)
-}
-
-func (c *Controller) applyWindowChrome() {
-	c.mu.RLock()
-	mode := c.mode
-	window := c.window
-	transitioning := c.transitioning
-	c.mu.RUnlock()
-	if window == nil || transitioning {
-		return
+	if hasLast {
+		center := point{X: last.X + last.Width/2, Y: last.Y + last.Height/2}
+		if screen := c.screenAt(center); screen != nil {
+			return clampRectToWorkArea(last, screen.WorkArea)
+		}
 	}
-	if mode == ModeBubble || mode == ModeOverlay {
-		c.applyBubbleChrome(window)
-		return
+	area := c.workArea()
+	return clampRectToWorkArea(centeredRect(area, mainWidth, mainHeight), area)
+}
+
+func (c *Controller) bubbleRect() application.Rect {
+	area := c.workArea()
+	var saved *point
+	if c.app != nil {
+		if position := c.app.GetDesktopConfig().BubblePosition; position != nil {
+			candidate := point{X: position.X, Y: position.Y}
+			if screen := c.screenAt(candidate); screen != nil {
+				area = screen.WorkArea
+				saved = &candidate
+			}
+		}
 	}
-	c.applyMainChrome(window)
+	return bubbleTargetBounds(area, saved)
 }
 
-// applyBubbleChrome 把窗口切成浮动球形态。非 macOS 平台过去是空实现，
-// Windows 现在要在这里收掉 DWM 的玻璃边框（否则球后面会露出方框）；
-// 其他平台的实现仍然是空函数。
-func (c *Controller) applyBubbleChrome(window *application.WebviewWindow) {
-	setBubbleChrome(window.NativeWindow())
+func (c *Controller) overlayRect() application.Rect {
+	return overlayTargetBounds(c.workArea())
 }
 
-func (c *Controller) applyMainChrome(window *application.WebviewWindow) {
-	restoreMainChrome(window.NativeWindow())
-}
-
-// windowScreen 返回窗口当前所在的屏幕；Wails 还没创建原生窗口时
-// 退回到主屏，避免位置计算直接失败。
-func (c *Controller) windowScreen() *application.Screen {
-	if c.window != nil {
-		if screen, err := c.window.GetScreen(); err == nil && screen != nil {
-			return screen
+func (c *Controller) workArea() application.Rect {
+	for _, role := range []string{ModeMain, ModeBubble, ModeOverlay} {
+		window := c.current(role)
+		if window == nil {
+			continue
+		}
+		if screen, err := window.GetScreen(); err == nil && screen != nil {
+			return screen.WorkArea
 		}
 	}
 	if c.desktop != nil {
-		return c.desktop.Screen.GetPrimary()
+		if screen := c.desktop.Screen.GetPrimary(); screen != nil {
+			return screen.WorkArea
+		}
 	}
-	return nil
+	return application.Rect{Width: 1440, Height: 900}
 }
 
-// screenAt 返回包含给定绝对屏幕坐标的屏幕。v3 的 Screen.WorkArea
-// 已经是逻辑像素的绝对矩形，因此这里不再维护 v2 的屏幕相对坐标假设。
 func (c *Controller) screenAt(position point) *application.Screen {
 	if c.desktop == nil {
 		return nil
@@ -1115,40 +900,98 @@ func (c *Controller) screenAt(position point) *application.Screen {
 	return nil
 }
 
-func (c *Controller) workAreaAt(position point) application.Rect {
-	if screen := c.screenAt(position); screen != nil {
-		return screen.WorkArea
+func (c *Controller) rememberMainBounds(window *application.WebviewWindow) {
+	if window == nil {
+		return
 	}
-	if screen := c.windowScreen(); screen != nil {
-		return screen.WorkArea
+	bounds := window.Bounds()
+	if bounds.Width < mainMinWidth || bounds.Height < mainMinHeight {
+		return
 	}
-	// 没有屏幕信息时退回常见笔记本尺寸，行为与 v2 一致。
-	return application.Rect{Width: 1440, Height: 900}
+	c.mu.Lock()
+	c.mainBounds = bounds
+	c.hasMainBounds = true
+	c.mu.Unlock()
 }
 
-func rectContains(area application.Rect, position point) bool {
-	return position.X >= area.X &&
-		position.Y >= area.Y &&
-		position.X < area.X+area.Width &&
-		position.Y < area.Y+area.Height
+func (c *Controller) persistBubblePosition() error {
+	if c.app == nil {
+		return nil
+	}
+	window := c.current(ModeBubble)
+	if window == nil || !window.IsVisible() {
+		return nil
+	}
+	x, y := window.Position()
+	center := point{X: x + bubbleWidth/2, Y: y + bubbleHeight/2}
+	area := c.workArea()
+	if screen := c.screenAt(center); screen != nil {
+		area = screen.WorkArea
+	}
+	position := clampPoint(point{X: x, Y: y}, area)
+
+	cfg := c.app.GetDesktopConfig()
+	if cfg.BubblePosition != nil &&
+		cfg.BubblePosition.X == position.X &&
+		cfg.BubblePosition.Y == position.Y {
+		return nil
+	}
+	cfg.BubblePosition = &backend.BubblePosition{X: position.X, Y: position.Y}
+	return c.app.SaveDesktopConfig(cfg)
 }
 
-func clampPoint(position point, area application.Rect) point {
-	return point{
-		X: clampInt(position.X, area.X, area.X+area.Width-bubbleWidth),
-		Y: clampInt(position.Y, area.Y, area.Y+area.Height-bubbleHeight),
+func (c *Controller) clearBubbleHidden() {
+	if c.app == nil {
+		return
+	}
+	if c.app.GetDesktopConfig().BubbleHidden {
+		_ = c.app.SetBubbleHidden(false)
 	}
 }
 
-func clampInt(value, low, high int) int {
-	if high < low {
-		return low
+func (c *Controller) setVisible(role string) {
+	c.mu.Lock()
+	c.visible = role
+	c.mu.Unlock()
+}
+
+func (c *Controller) current(role string) *application.WebviewWindow {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.windows[role]
+}
+
+func (c *Controller) sessionActive() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.session.Status != "" && c.session.Status != "idle"
+}
+
+func (c *Controller) mainWindow() (*application.WebviewWindow, error) {
+	if err := c.ensureRuntime(); err != nil {
+		return nil, err
 	}
-	if value < low {
-		return low
+	window := c.current(ModeMain)
+	if window == nil {
+		return nil, errors.New("main window is not open")
 	}
-	if value > high {
-		return high
+	return window, nil
+}
+
+func (c *Controller) ensureRuntime() error {
+	c.mu.RLock()
+	started := c.started
+	desktop := c.desktop
+	c.mu.RUnlock()
+	if !started || desktop == nil {
+		return errors.New("desktop controller is not started")
 	}
-	return value
+	return nil
+}
+
+func (c *Controller) keepBubbleOnTop() bool {
+	if c.app == nil {
+		return true
+	}
+	return c.app.GetDesktopConfig().KeepBubbleOnTop
 }

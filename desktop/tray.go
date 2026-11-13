@@ -64,8 +64,12 @@ func (t *tray) syncVisibility() {
 		return
 	}
 	hidden := t.controller.app.GetDesktopConfig().BubbleHidden
-	t.showItem.SetEnabled(hidden)
-	t.hideItem.SetEnabled(!hidden)
+	// 绑定方法跑在 HTTP/goroutine 上，而 NSMenuItem 只能在主线程
+	// 修改；直接在调用线程 SetEnabled 会在 AppKit 里 SIGSEGV。
+	application.InvokeSync(func() {
+		t.showItem.SetEnabled(hidden)
+		t.hideItem.SetEnabled(!hidden)
+	})
 }
 
 // toggleBubble 是 Windows 左键的默认动作：在隐藏与显示之间切换。

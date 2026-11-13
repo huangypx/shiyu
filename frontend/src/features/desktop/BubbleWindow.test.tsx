@@ -5,6 +5,7 @@ import BubbleWindow from './BubbleWindow';
 
 const bridge = vi.hoisted(() => ({
   saveBubblePosition: vi.fn(),
+  subscribeDesktopMicLevel: vi.fn(() => () => undefined),
 }));
 
 // 音量在真实设备上来自麦克风；测试直接推动订阅回调，
