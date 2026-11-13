@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   isWindowMaximised,
@@ -77,7 +77,17 @@ function CloseGlyph() {
 // hover 底色和关闭键的红色都由这里决定；macOS 用原生交通灯，不渲染。
 export default function WindowControls({ platform }: Props) {
   const [maximised, setMaximised] = useState(false);
+  // 点击最大化后补查图标状态的那次延时：组件卸载或再次点击时要能取消，
+  // 否则回调会落在已经销毁的窗口上（测试环境里表现为 unhandled rejection）。
+  const maximiseSyncTimer = useRef<number | undefined>(undefined);
   const hasControls = platform === 'windows' || platform === 'linux';
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(maximiseSyncTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!hasControls) return;
@@ -111,8 +121,9 @@ export default function WindowControls({ platform }: Props) {
   const toggleMaximise = async () => {
     await toggleMaximiseWindow();
     // 窗口尺寸变化本身会触发 resize，但最大化到还原可能落在同一像素上，
-    // 这里补一次主动查询，保证图标不会停在旧状态。
-    window.setTimeout(() => {
+    // 这里补一次主动查询，保证图标不会停在旧状态；重复点击先取消上一次。
+    window.clearTimeout(maximiseSyncTimer.current);
+    maximiseSyncTimer.current = window.setTimeout(() => {
       void isWindowMaximised().then(setMaximised);
     }, 100);
   };
