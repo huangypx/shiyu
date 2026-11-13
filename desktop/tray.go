@@ -30,7 +30,7 @@ func newTray(c *Controller) *tray {
 	t.showItem = menu.Add("显示悬浮球").OnClick(func(*application.Context) {
 		_ = c.SetBubbleHidden(false)
 	})
-	t.hideItem = menu.Add("隐藏悬浮球（仅保留托盘）").OnClick(func(*application.Context) {
+	t.hideItem = menu.Add("隐藏悬浮球").OnClick(func(*application.Context) {
 		_ = c.SetBubbleHidden(true)
 	})
 	menu.AddSeparator()
