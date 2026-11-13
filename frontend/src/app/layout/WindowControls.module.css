@@ -13,7 +13,7 @@
   border: 0;
   background: transparent;
   color: var(--app-ink-soft);
-  transition: background-color 120ms ease;
+  transition: background-color var(--app-duration-base) ease;
 }
 
 .control:hover {
@@ -23,8 +23,8 @@
 
 /* 关闭键用系统红：和原生 caption 的语义保持一致，其余按钮只提亮底色。 */
 .close:hover {
-  background: #c42b1c;
-  color: #fff;
+  background: var(--app-window-close);
+  color: var(--app-window-close-ink);
 }
 
 /* Linux 的窗口按钮比 Windows 窄，与 GNOME 的 36px 见方对齐。 */

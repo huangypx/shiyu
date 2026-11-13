@@ -17,18 +17,18 @@
 
 .label {
   color: var(--app-ink-soft);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .optional {
   color: var(--app-ink-faint);
-  font-size: 11px;
+  font-size: var(--app-text-meta);
 }
 
 .hint {
   margin: 0;
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   line-height: 1.65;
 }
 
@@ -52,13 +52,13 @@
 
 .toggleText strong {
   color: var(--app-ink);
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   font-weight: 500;
 }
 
 .toggleText small {
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .footerNote {
@@ -66,7 +66,7 @@
   align-items: center;
   gap: 5px;
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .presetLayout {
@@ -119,7 +119,7 @@
 
 .presetItem strong {
   color: var(--app-ink);
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -128,7 +128,7 @@
 
 .presetItem small {
   color: var(--app-ink-faint);
-  font-size: 11px;
+  font-size: var(--app-text-meta);
 }
 
 .presetItemActive {
@@ -149,7 +149,7 @@
 .promptArea {
   min-height: 168px;
   padding: 10px 12px;
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   line-height: 1.7;
 }
 
@@ -162,7 +162,7 @@
 .presetProblem {
   margin: 0;
   color: var(--app-danger);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .presetDialogActions {

@@ -16,9 +16,9 @@
   visibility: hidden;
   transform: scale(0.985);
   transition:
-    opacity 140ms ease-out,
-    transform 140ms ease-out,
-    visibility 0s linear 140ms;
+    opacity var(--app-duration-medium) var(--app-ease-out),
+    transform var(--app-duration-medium) var(--app-ease-out),
+    visibility 0s linear var(--app-duration-medium);
 }
 
 .shell[data-leaving='true'] .scroll {
@@ -28,7 +28,7 @@
 /* 展开落定后 AppShell 才挂载，从遮罩背后淡入；起点轻微缩放，
    让主窗口在记忆位置出现时有一点生长感。 */
 .shell[data-entering='true'] {
-  animation: shellEnter 200ms ease-out both;
+  animation: shellEnter var(--app-duration-enter) var(--app-ease-out) both;
 }
 
 @keyframes shellEnter {

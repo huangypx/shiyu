@@ -1,6 +1,6 @@
-/* 全局只保留真正全局的东西：盒模型、根元素尺寸、
-   平台窗口层变量和透明画布的取舍。组件样式一律放在
-   各自的 .module.css 里。 */
+/* 全局只保留真正全局的东西：盒模型、根元素尺寸和透明画布的取舍。
+   组件样式一律放在各自的 .module.css 里；字体、字号与布局 token 在
+   theme.css 里定义，这里只引用。 */
 
 *,
 *::before,
@@ -17,9 +17,7 @@ body,
 body {
   margin: 0;
   color-scheme: light dark;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text',
-    'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Noto Sans SC', sans-serif;
+  font-family: var(--app-font-ui);
   /* 画布由主窗口的 AppShell 绘制，body 保持透明；
      浮动模式没有外壳，因此整页天然透明。 */
   background: transparent;
@@ -36,35 +34,19 @@ body {
 
 /* 键盘焦点只在真正需要时显示，鼠标点击不画环。 */
 :focus-visible {
-  outline: 2px solid var(--focus-8);
+  outline: 2px solid var(--app-focus);
   outline-offset: 2px;
 }
 
 /* 加载指示器在多个组件里用同一个类名。 */
 .spin {
-  animation: spin 1s linear infinite;
+  animation: spin var(--app-duration-spin) linear infinite;
 }
 
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
-}
-
-/* 窗口标题只有一条 36px 顶带：macOS 把原生交通灯排在它里面，
-   Windows/Linux 把 HTML 窗口按钮排在它右端，三种平台的正文都从
-   同一条基线开始，不再有第二条 caption。 */
-:root {
-  /* 原生交通灯的中心在距窗口顶部 16px；36px 顶带把内容中心放在 18px，
-     两者只差 2px，视觉上就是同一条线，又不会让按钮贴住内容。 */
-  --app-header-height: 36px;
-  /* 交通灯排在 x = 9–69，78 是留 9px 呼吸后的内容起点；
-     其余平台没有交通灯，这个变量保持 0。 */
-  --app-titlebar-inset: 0px;
-}
-
-:root[data-platform='darwin'] {
-  --app-titlebar-inset: 78px;
 }
 
 button {

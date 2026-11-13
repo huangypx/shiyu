@@ -24,8 +24,8 @@
   transform-origin: 50% 46px;
   pointer-events: none;
   transition:
-    opacity 120ms ease-out,
-    transform 120ms ease-out;
+    opacity var(--app-duration-base) var(--app-ease-out),
+    transform var(--app-duration-base) var(--app-ease-out);
 }
 
 /* 球占据窗口顶部 92x92；工具栏条在它下面，不能跟着球一起缩放。 */
@@ -44,25 +44,25 @@
   place-items: center;
   width: 72px;
   height: 72px;
-  border: 6px solid rgba(255, 255, 255, 0.94);
+  border: 6px solid var(--app-chip-border);
   border-radius: 50%;
-  background: var(--gray-12);
-  color: var(--gray-1);
+  background: var(--app-chip-surface);
+  color: var(--app-chip-ink);
   cursor: grab;
-  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
+  box-shadow: var(--app-chip-shadow);
   /* 90ms 的插值把 23Hz 的采样接成连续动画；72px 的球最多
      放大到约 81px，加上 6px 边框仍在 92px 的球区内。 */
   transition:
-    transform 90ms ease-out,
-    background-color 160ms ease,
-    box-shadow 160ms ease;
+    transform 90ms var(--app-ease-out),
+    background-color var(--app-duration-slow) ease,
+    box-shadow var(--app-duration-slow) ease;
 }
 
 /* 应用失焦时 WebKit 不更新 :hover；原生悬停桥写入 data-hover 后
    球也要有同样的视觉反馈。 */
 .button:hover,
 .shell[data-hover='true'] .button {
-  box-shadow: 0 8px 20px rgba(15, 15, 17, 0.32);
+  box-shadow: var(--app-chip-shadow-hover);
   filter: brightness(1.08);
 }
 
@@ -72,8 +72,8 @@
 }
 
 .recording {
-  background: var(--red-9);
-  color: #fff;
+  background: var(--app-recording);
+  color: var(--app-recording-ink);
   transform: scale(calc(1 + var(--mic-level) * 0.14));
 }
 
@@ -87,13 +87,13 @@
   width: 86px;
   height: 86px;
   margin: -43px 0 0 -43px;
-  border: 2px solid var(--red-a8);
+  border: 2px solid var(--app-recording-halo);
   border-radius: 50%;
   opacity: calc(0.14 + var(--mic-level) * 0.8);
   transform: scale(calc(0.96 + var(--mic-level) * 0.06));
   transition:
-    transform 120ms ease-out,
-    opacity 120ms ease-out;
+    transform var(--app-duration-base) var(--app-ease-out),
+    opacity var(--app-duration-base) var(--app-ease-out);
   pointer-events: none;
 }
 
@@ -109,10 +109,10 @@
   width: 84px;
   height: 84px;
   margin: -42px 0 0 -42px;
-  border: 2px solid var(--gray-11);
+  border: 2px solid var(--app-ink-soft);
   border-radius: 50%;
   pointer-events: none;
-  animation: armingPulse 1.4s ease-out infinite;
+  animation: armingPulse var(--app-duration-pulse) var(--app-ease-out) infinite;
 }
 
 .processing {
@@ -120,11 +120,11 @@
 }
 
 .flashSuccess {
-  animation: flashSuccess 1.1s ease-out;
+  animation: flashSuccess var(--app-duration-flash) var(--app-ease-out);
 }
 
 .flashError {
-  animation: flashError 1.4s ease-out;
+  animation: flashError 1.4s var(--app-ease-out);
 }
 
 /* 悬停工具栏：球下方的三个图标。容器始终接收指针并退出拖拽区，
@@ -147,19 +147,19 @@
   gap: 2px;
   align-items: center;
   padding: 2px;
-  border: 2px solid rgba(255, 255, 255, 0.94);
+  border: 2px solid var(--app-chip-border);
   border-radius: var(--app-radius-pill);
-  background: var(--gray-12);
-  color: var(--gray-1);
-  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
+  background: var(--app-chip-surface);
+  color: var(--app-chip-ink);
+  box-shadow: var(--app-chip-shadow);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translateY(-4px);
   transition:
-    opacity 140ms ease-out,
-    transform 140ms ease-out,
-    visibility 0s linear 140ms;
+    opacity var(--app-duration-medium) var(--app-ease-out),
+    transform var(--app-duration-medium) var(--app-ease-out),
+    visibility 0s linear var(--app-duration-medium);
 }
 
 /* 三种触发方式共用一套显隐：鼠标悬停、键盘聚焦、macOS 原生
@@ -187,8 +187,8 @@
   color: inherit;
   cursor: pointer;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--app-duration-base) ease,
+    color var(--app-duration-base) ease;
 }
 
 /* 悬停或键盘聚焦时把胶囊的配色反转到按钮上：深色主题是黑底白
@@ -197,12 +197,12 @@
 .toolbarButton:hover,
 .toolbarButton[data-hovered='true'],
 .toolbarButton:focus-visible {
-  background: var(--gray-1);
-  color: var(--gray-12);
+  background: var(--app-chip-ink);
+  color: var(--app-chip-surface);
 }
 
 .toolbarButton:focus-visible {
-  outline: 2px solid var(--indigo-8);
+  outline: 2px solid var(--app-chip-focus);
   outline-offset: 1px;
 }
 
@@ -226,26 +226,26 @@
 @keyframes flashSuccess {
   0% {
     box-shadow:
-      0 0 0 0 var(--jade-a6),
-      0 6px 16px rgba(15, 15, 17, 0.28);
+      0 0 0 0 var(--app-success-halo),
+      var(--app-chip-shadow);
   }
   60% {
     box-shadow:
       0 0 0 14px transparent,
-      0 6px 16px rgba(15, 15, 17, 0.28);
+      var(--app-chip-shadow);
   }
 }
 
 @keyframes flashError {
   0% {
     box-shadow:
-      0 0 0 0 var(--red-a6),
-      0 6px 16px rgba(15, 15, 17, 0.28);
+      0 0 0 0 var(--app-danger-halo),
+      var(--app-chip-shadow);
   }
   60% {
     box-shadow:
       0 0 0 14px transparent,
-      0 6px 16px rgba(15, 15, 17, 0.28);
+      var(--app-chip-shadow);
   }
 }
 

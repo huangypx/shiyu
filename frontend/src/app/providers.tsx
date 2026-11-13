@@ -1,11 +1,13 @@
 import { Theme } from '@radix-ui/themes';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
+import { paletteById } from '@/lib/palettes';
 import { useUiStore } from '@/store/uiStore';
 
-// 外观偏好可以是「跟随系统」，但 Radix Theme 只接受
-// light / dark 两个值，因此在这里把系统偏好解析成具体值。
-function useResolvedAppearance() {
+// 固定明暗的主题不跟系统走：只有 pinned 为 null 时才回到用户偏好。
+// 外观偏好可以是「跟随系统」，但 Radix Theme 只接受 light / dark
+// 两个值，因此在这里把系统偏好解析成具体值。
+function useResolvedAppearance(pinned: 'light' | 'dark' | null) {
   const preference = useUiStore((state) => state.appearance);
   const [systemPrefersDark, setSystemPrefersDark] = useState(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
@@ -28,17 +30,32 @@ function useResolvedAppearance() {
     };
   }, []);
 
+  if (pinned) return pinned;
   if (preference === 'system') return systemPrefersDark ? 'dark' : 'light';
   return preference;
 }
 
 export function AppTheme({ children }: { children: React.ReactNode }) {
-  const appearance = useResolvedAppearance();
+  const palette = useUiStore((state) => state.palette);
+  const spec = paletteById(palette);
+  const appearance = useResolvedAppearance(spec.appearance);
+
+  // Radix 的弹层渲染在 body 下，拿不到根容器的 data-palette，只能把
+  // 主题写到 html 上让弹层也能继承色板。用 layout effect 是因为它
+  // 在首绘前执行：深色主题启动时不会先闪一帧浅色。
+  useLayoutEffect(() => {
+    document.documentElement.dataset.palette = palette;
+    return () => {
+      delete document.documentElement.dataset.palette;
+    };
+  }, [palette]);
+
   return (
     <Theme
+      data-palette={palette}
       appearance={appearance}
-      accentColor="indigo"
-      grayColor="slate"
+      accentColor={spec.accentColor}
+      grayColor={spec.grayColor}
       radius="large"
       scaling="90%"
       panelBackground="solid"

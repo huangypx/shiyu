@@ -1,5 +1,6 @@
 import '@radix-ui/themes/styles.css';
 import '@/styles/theme.css';
+import '@/styles/palettes.css';
 import '@/styles/global.css';
 
 import { StrictMode } from 'react';

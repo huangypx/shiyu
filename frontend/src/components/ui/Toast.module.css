@@ -22,9 +22,9 @@
   border: 1px solid var(--app-border-strong);
   border-radius: var(--app-radius-md);
   background: var(--app-surface);
-  box-shadow: var(--shadow-3);
+  box-shadow: var(--app-shadow-float);
   color: var(--app-ink);
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   line-height: 1.5;
 }
 
@@ -36,7 +36,7 @@
 }
 
 .error {
-  border-color: var(--red-a7);
+  border-color: var(--app-danger-border);
 }
 
 .error .icon {

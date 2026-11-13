@@ -18,12 +18,12 @@
   gap: 6px;
   margin: 0 0 6px;
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .heading h1 {
   margin: 0 0 4px;
-  font-size: 22px;
+  font-size: var(--app-text-page-title);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -31,12 +31,12 @@
 .subtitle {
   margin: 0;
   color: var(--app-ink-soft);
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
 }
 
 .total {
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   white-space: nowrap;
 }
 
@@ -50,7 +50,7 @@
 
 .confirm {
   color: var(--app-ink-soft);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .list {
@@ -105,7 +105,7 @@
 }
 
 .copy strong {
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   font-weight: 550;
   color: var(--app-ink);
   white-space: nowrap;
@@ -115,7 +115,7 @@
 
 .copy small {
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -123,7 +123,7 @@
 
 .time {
   color: var(--app-ink-faint);
-  font-size: 11px;
+  font-size: var(--app-text-meta);
   white-space: nowrap;
 }
 
@@ -137,13 +137,13 @@
   justify-content: space-between;
   padding: 10px 14px 0;
   color: var(--app-ink-faint);
-  font-size: 11px;
+  font-size: var(--app-text-meta);
 }
 
 .detailBody {
   padding: 6px 14px 12px;
   color: var(--app-ink);
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   line-height: 1.75;
   white-space: pre-wrap;
 }
@@ -182,14 +182,14 @@
 }
 
 .empty strong {
-  font-size: 13px;
+  font-size: var(--app-text-strong);
   font-weight: 550;
 }
 
 .empty p {
   margin: 0;
   color: var(--app-ink-faint);
-  font-size: 12px;
+  font-size: var(--app-text-body-sm);
 }
 
 @media (max-width: 680px) {

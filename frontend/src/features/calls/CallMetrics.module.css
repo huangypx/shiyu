@@ -18,7 +18,7 @@
   border-radius: var(--app-radius-xs);
   background: var(--app-surface-hover);
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -40,7 +40,7 @@
   border: 0;
   background: none;
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   cursor: pointer;
 }
 
@@ -55,7 +55,7 @@
 .error {
   margin: 0 14px 8px;
   color: var(--app-danger);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   overflow-wrap: anywhere;
 }
 
@@ -80,13 +80,13 @@
 
 .grid dt {
   color: var(--app-ink-faint);
-  font-size: 10.5px;
+  font-size: var(--app-text-caption);
 }
 
 .grid dd {
   margin: 0;
   color: var(--app-ink);
-  font-size: 12px;
+  font-size: var(--app-text-body-sm);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -94,7 +94,7 @@
 .rawLabel {
   margin: 10px 0 0;
   color: var(--app-ink-faint);
-  font-size: 10.5px;
+  font-size: var(--app-text-caption);
 }
 
 .raw {
@@ -102,10 +102,10 @@
   margin: 4px 0 0;
   padding: 8px 10px;
   border-radius: var(--app-radius-sm);
-  background: var(--gray-a3);
+  background: var(--app-surface-hover);
   color: var(--app-ink-soft);
-  font-family: var(--code-font-family);
-  font-size: 11px;
+  font-family: var(--app-font-code);
+  font-size: var(--app-text-meta);
   line-height: 1.5;
   overflow: auto;
 }

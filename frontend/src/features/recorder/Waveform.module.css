@@ -18,28 +18,29 @@
   width: 2px;
   height: 100%;
   border-radius: 2px;
-  background: var(--gray-a5);
+  background: var(--app-wave-idle);
   /* 用缩放而不是高度：缩放不触发重排，几十赫兹的音量更新
      也不会让卡片抖动。静默时保留一截细线，说明它还在等声音。 */
   transform: scaleY(0.14);
-  transition: transform 80ms ease-out;
+  transition: transform var(--app-duration-fast) var(--app-ease-out);
 }
 
 /* 状态由组件自身的 data 属性驱动，不再依赖外层卡片的 data-state，
    这样主窗口与底部胶囊可以共用同一套样式而视觉完全一致。 */
 .waveform[data-active] i {
-  background: var(--red-a8);
+  background: var(--app-wave-active);
   transform: scaleY(calc(0.14 + var(--mic-level) * var(--bar-weight) * 0.9));
 }
 
 .waveform[data-arming] i {
-  background: var(--gray-a6);
-  animation: armingBars 1.4s ease-in-out infinite;
+  background: var(--app-wave-arming);
+  animation: armingBars var(--app-duration-pulse) var(--app-ease-in-out)
+    infinite;
   animation-delay: calc(var(--bar-weight) * 220ms);
 }
 
 .waveform[data-processing] i {
-  background: var(--gray-a7);
+  background: var(--app-wave-processing);
 }
 
 @keyframes armingBars {

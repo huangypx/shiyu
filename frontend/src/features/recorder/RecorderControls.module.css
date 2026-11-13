@@ -10,12 +10,12 @@
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--gray-12);
-  color: var(--gray-1);
+  background: var(--app-chip-surface);
+  color: var(--app-chip-ink);
   cursor: pointer;
   transition:
-    background-color 160ms ease,
-    transform 120ms ease;
+    background-color var(--app-duration-slow) ease,
+    transform var(--app-duration-base) ease;
 }
 
 .record:hover {
@@ -24,16 +24,16 @@
 
 .record:disabled {
   cursor: progress;
-  background: var(--gray-a4);
+  background: var(--app-surface-active);
   color: var(--app-ink-soft);
   transform: none;
 }
 
 /* 录音是唯一用红色的状态：暂停比开始更需要一眼认出来。
-   底色用 --red-9，图标取 Radix 为该色阶配的 --red-contrast。 */
+   底色用 --app-recording，图标取与之配对的 --app-recording-ink。 */
 .record[data-state='recording'] {
-  background: var(--red-9);
-  color: var(--red-contrast);
+  background: var(--app-recording);
+  color: var(--app-recording-ink);
 }
 
 /* 申请麦克风权限期间给按钮一圈呼吸环：图标仍是麦克风，
@@ -42,10 +42,10 @@
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid var(--gray-a7);
+  border: 2px solid var(--app-border-strong);
   border-radius: 50%;
   pointer-events: none;
-  animation: armingPulse 1.4s ease-out infinite;
+  animation: armingPulse var(--app-duration-pulse) var(--app-ease-out) infinite;
 }
 
 @keyframes armingPulse {

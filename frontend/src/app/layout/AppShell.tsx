@@ -15,8 +15,6 @@ export default function AppShell() {
   const runtime = useDesktopStore((state) => state.runtime);
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const closeSettings = useUiStore((state) => state.closeSettings);
-  const appearance = useUiStore((state) => state.appearance);
-  const setAppearance = useUiStore((state) => state.setAppearance);
 
   const models = useSettingsStore((state) => state.models);
   const desktop = useSettingsStore((state) => state.desktop);
@@ -57,8 +55,6 @@ export default function AppShell() {
           onDesktopChange={patchDesktop}
           onClose={closeSettings}
           onSave={handleSave}
-          appearance={appearance}
-          onAppearanceChange={setAppearance}
         />
       )}
     </div>

@@ -1,6 +1,73 @@
-/* 设计 token：颜色全部来自 Radix Themes 的色阶。
-   必须定义在 .radix-themes 上——Radix 的 --gray-* / --accent-*
-   只在主题容器里存在，写进 :root 会在计算时失效。 */
+/* 设计 token 分两层存放，原因是作用域不同：Radix 的 --gray-* /
+   --indigo-* / --shadow-* 等色阶只在主题容器上生成，写进 :root 会在求值时
+   拿不到值，所以颜色类 token 必须留在 .radix-themes；而 body 与 :root
+   自身需要的字体、字号、动效、布局值必须定义在 :root，才能被主题容器
+   之外的节点继承。 */
+
+:root {
+  /* 字体：整套界面只用一个 UI 字族；代码字体跟随 Radix 的
+     --code-font-family，单独开一个 token，模块里就不必直接引用 Radix 变量。 */
+  --app-font-ui:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text',
+    'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Noto Sans SC', sans-serif;
+
+  /* 字号按语义分档而不是按组件：改一档就整站统一变化。 */
+  --app-text-caption: 10.5px;
+  --app-text-meta: 11px;
+  --app-text-label: 11.5px;
+  --app-text-body-sm: 12px;
+  --app-text-body: 12.5px;
+  --app-text-strong: 13px;
+  --app-text-page-title: 22px;
+  /* 编辑区的标题与正文随窗口宽度缓动，窄窗口下才不会挤爆栏头。 */
+  --app-text-editor-title: clamp(17px, 1.55vw, 21px);
+  --app-text-editor-body: clamp(13px, 1.1vw, 15px);
+
+  /* 动效时长按动作幅度分档：幅度越大给的时间越长，越小的反馈越要收得快。 */
+  --app-duration-fast: 80ms;
+  --app-duration-base: 120ms;
+  --app-duration-medium: 140ms;
+  --app-duration-slow: 160ms;
+  --app-duration-enter: 200ms;
+  /* 窗口形变（胶囊收成圆）路程最长，单独给一档，拖沓与生硬之间才取得平。 */
+  --app-duration-morph: 260ms;
+  /* 闪示与呼吸环按时长「看得出来」而不是按帧率定，1s 上下最自然。 */
+  --app-duration-flash: 1.1s;
+  --app-duration-pulse: 1.4s;
+  --app-duration-spin: 1s;
+
+  /* 缓动：spring 只给形变用，其余沿用 CSS 关键字。 */
+  --app-ease-out: ease-out;
+  --app-ease-in-out: ease-in-out;
+  --app-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* 窗口标题只有一条 36px 顶带：macOS 把原生交通灯排在它里面，
+     Windows/Linux 把 HTML 窗口按钮排在它右端，三种平台的正文都从
+     同一条基线开始，不再有第二条 caption。 */
+  --app-header-height: 36px;
+  /* 交通灯排在 x = 9–69，78 是留 9px 呼吸后的内容起点；其余平台没有
+     交通灯，这个变量保持 0。36px 顶带把内容中心放在 18px，与交通灯
+     中心（距窗口顶部 16px）只差 2px，视觉上仍是同一条线。 */
+  --app-titlebar-inset: 0px;
+
+  /* 布局 */
+  --app-content-max: 1040px;
+
+  /* 圆角：卡片比控件更圆，避免「方盒子堆叠」的硬边 */
+  --app-radius-xs: 5px;
+  --app-radius-sm: 7px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 14px;
+  --app-radius-pill: 999px;
+
+  /* 900px / 680px 是应用的两个断点；媒体查询的条件里不能用 var()，
+     所以这里只留说明，具体宽度直接写在各模块的 @media 里。 */
+}
+
+/* macOS 的交通灯占住顶带左侧，内容必须整体右移；其余平台不需要。 */
+:root[data-platform='darwin'] {
+  --app-titlebar-inset: 78px;
+}
 
 :where(.radix-themes) {
   /* 表面 */
@@ -22,27 +89,57 @@
   --app-accent-strong: var(--indigo-11);
   --app-accent-soft: var(--indigo-a3);
 
+  /* 焦点环取 8 号色阶：它作边框时对比足够，又不像 9 号实心强调色那样抢眼。 */
+  --app-focus: var(--indigo-8);
+
   /* 状态 */
   --app-danger: var(--red-9);
   --app-danger-soft: var(--red-a3);
+  --app-danger-border: var(--red-a7);
+  --app-danger-halo: var(--red-a6);
   --app-success: var(--jade-9);
   --app-success-soft: var(--jade-a3);
+  --app-success-halo: var(--jade-a6);
 
-  /* 圆角：卡片比控件更圆，避免「方盒子堆叠」的硬边 */
-  --app-radius-xs: 5px;
-  --app-radius-sm: 7px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 14px;
-  --app-radius-pill: 999px;
+  /* 录音：从开始到进行中只用这一组红色语义；ink 取 Radix 为该色阶
+     配的对比色，halo 给音量环用。 */
+  --app-recording: var(--red-9);
+  --app-recording-ink: var(--red-contrast);
+  --app-recording-halo: var(--red-a8);
+
+  /* 芯片：浮动球与底部胶囊共用一块深色底，落在任何桌面壁纸上都要清晰；
+     白色描边让深色底本身与背景之间多一道分界。 */
+  --app-chip-surface: var(--gray-12);
+  --app-chip-ink: var(--gray-1);
+  --app-chip-border: rgb(255 255 255 / 94%);
+  --app-chip-focus: var(--indigo-8);
+  --app-chip-shadow: 0 6px 16px rgb(15 15 17 / 28%);
+  --app-chip-shadow-hover: 0 8px 20px rgb(15 15 17 / 32%);
+
+  /* 波形：只服务底部胶囊里的 Waveform（已确认 Waveform 仅被
+     OverlayWindow 使用），四个状态各取一档灰度或红色，不再散落。 */
+  --app-wave-idle: var(--gray-a5);
+  --app-wave-active: var(--red-a8);
+  --app-wave-arming: var(--gray-a6);
+  --app-wave-processing: var(--gray-a7);
+
+  /* 闪示：录音结束用绿勾、取消或失败用红叉报结果，靠颜色先分辨。 */
+  --app-flash-success: var(--jade-11);
+  --app-flash-danger: var(--red-11);
+
+  /* 窗口按钮：关闭键沿用系统红，与原生 caption 的语义一致。 */
+  --app-window-close: #c42b1c;
+  --app-window-close-ink: #fff;
+
+  /* 浮层阴影：提示条等需要脱离画布的元素共用一档。 */
+  --app-shadow-float: var(--shadow-3);
+
+  /* 代码字体跟随 Radix，等宽文本与控件用同一套字族。 */
+  --app-font-code: var(--code-font-family);
 
   /* 卡片只加一层几乎看不见的落影，用于和画布分离；
      深色模式下 black-a2 自然趋近透明，不需要第二套规则。 */
   --app-shadow-card: 0 1px 2px var(--black-a2);
-
-  /* 布局 */
-  --app-content-max: 1040px;
-  --app-breakpoint-tablet: 900px;
-  --app-breakpoint-mobile: 680px;
 }
 
 /* Radix 控件的圆角会随 scaling 一起缩放，90% 下按钮只有 5.4px、

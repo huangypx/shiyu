@@ -52,8 +52,8 @@
   transform: translateX(-50%);
   background: var(--app-border);
   transition:
-    width 120ms ease,
-    background-color 120ms ease;
+    width var(--app-duration-base) ease,
+    background-color var(--app-duration-base) ease;
 }
 
 .splitter:hover::after,
@@ -83,7 +83,7 @@
   flex: none;
   margin: 0;
   color: var(--app-ink);
-  font-size: clamp(17px, 1.55vw, 21px);
+  font-size: var(--app-text-editor-title);
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -146,7 +146,7 @@
 .textarea textarea {
   padding: 8px clamp(18px, 3.6vw, 52px) 16px;
   color: var(--app-ink);
-  font-size: clamp(13px, 1.1vw, 15px);
+  font-size: var(--app-text-editor-body);
   line-height: 1.75;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -179,7 +179,7 @@
 
 .count {
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   font-variant-numeric: tabular-nums;
 }
 

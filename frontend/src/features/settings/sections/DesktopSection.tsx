@@ -1,8 +1,7 @@
-import { SegmentedControl, Select, TextField } from '@radix-ui/themes';
+import { Select, TextField } from '@radix-ui/themes';
 
 import { setBubbleHidden } from '@/services/bridge';
 import { detectPlatform } from '@/services/platform';
-import type { Appearance } from '@/store/uiStore';
 import {
   defaultHotkeyFor,
   type DesktopSettings,
@@ -16,16 +15,12 @@ type Props = {
   desktop: DesktopSettings;
   desktopState?: DesktopState;
   onDesktopChange: (patch: Partial<DesktopSettings>) => void;
-  appearance: Appearance;
-  onAppearanceChange: (appearance: Appearance) => void;
 };
 
 export default function DesktopSection({
   desktop,
   desktopState,
   onDesktopChange,
-  appearance,
-  onAppearanceChange,
 }: Props) {
   const hotkeyHint =
     desktopState?.hotkeyRegistered && desktopState.canInjectText
@@ -107,18 +102,6 @@ export default function DesktopSection({
           onDesktopChange({ showResultPreview: checked })
         }
       />
-
-      <div className={styles.field}>
-        <span className={styles.label}>外观</span>
-        <SegmentedControl.Root
-          value={appearance}
-          onValueChange={(value) => onAppearanceChange(value as Appearance)}
-        >
-          <SegmentedControl.Item value="system">跟随系统</SegmentedControl.Item>
-          <SegmentedControl.Item value="light">浅色</SegmentedControl.Item>
-          <SegmentedControl.Item value="dark">深色</SegmentedControl.Item>
-        </SegmentedControl.Root>
-      </div>
 
       <div className={styles.field}>
         <span className={styles.label}>历史保留期</span>

@@ -18,12 +18,12 @@
   gap: 6px;
   margin: 0 0 6px;
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
 }
 
 .heading h1 {
   margin: 0 0 4px;
-  font-size: 22px;
+  font-size: var(--app-text-page-title);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -31,12 +31,12 @@
 .subtitle {
   margin: 0;
   color: var(--app-ink-soft);
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
 }
 
 .total {
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   white-space: nowrap;
 }
 
@@ -53,7 +53,7 @@
   border-radius: var(--app-radius-xs);
   background: var(--app-surface-hover);
   color: var(--app-ink-soft);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -107,7 +107,7 @@
   border-radius: var(--app-radius-xs);
   background: var(--app-surface-hover);
   color: var(--app-ink-soft);
-  font-size: 11px;
+  font-size: var(--app-text-meta);
   flex: none;
 }
 
@@ -124,7 +124,7 @@
 }
 
 .copy strong {
-  font-size: 12.5px;
+  font-size: var(--app-text-body);
   font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
@@ -133,7 +133,7 @@
 
 .copy small {
   color: var(--app-ink-faint);
-  font-size: 11.5px;
+  font-size: var(--app-text-label);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -151,7 +151,7 @@
 
 .time {
   color: var(--app-ink-faint);
-  font-size: 11px;
+  font-size: var(--app-text-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -181,14 +181,14 @@
 }
 
 .empty strong {
-  font-size: 13px;
+  font-size: var(--app-text-strong);
   font-weight: 550;
 }
 
 .empty p {
   margin: 0;
   color: var(--app-ink-faint);
-  font-size: 12px;
+  font-size: var(--app-text-body-sm);
 }
 
 @media (max-width: 680px) {

@@ -1,13 +1,13 @@
 import { Button, Dialog, Flex, Tabs, Text } from '@radix-ui/themes';
 import { ShieldCheck } from 'lucide-react';
 
-import type { Appearance } from '@/store/uiStore';
 import type {
   DesktopSettings,
   DesktopState,
   ModelSettings,
 } from '@/types/models';
 
+import AppearanceSection from './sections/AppearanceSection';
 import AsrSection from './sections/AsrSection';
 import DesktopSection from './sections/DesktopSection';
 import LlmSection from './sections/LlmSection';
@@ -22,8 +22,6 @@ type Props = {
   desktop: DesktopSettings;
   desktopState?: DesktopState;
   onDesktopChange: (patch: Partial<DesktopSettings>) => void;
-  appearance: Appearance;
-  onAppearanceChange: (appearance: Appearance) => void;
 };
 
 // 设置弹窗不进路由：浮动球的设置图标与全局快捷键都可能
@@ -36,8 +34,6 @@ export default function SettingsDialog({
   desktop,
   desktopState,
   onDesktopChange,
-  appearance,
-  onAppearanceChange,
 }: Props) {
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -53,6 +49,7 @@ export default function SettingsDialog({
             <Tabs.Trigger value="llm">文字整理</Tabs.Trigger>
             <Tabs.Trigger value="presets">整理预设</Tabs.Trigger>
             <Tabs.Trigger value="desktop">桌面行为</Tabs.Trigger>
+            <Tabs.Trigger value="appearance">外观</Tabs.Trigger>
           </Tabs.List>
 
           <Tabs.Content value="asr">
@@ -69,9 +66,10 @@ export default function SettingsDialog({
               desktop={desktop}
               desktopState={desktopState}
               onDesktopChange={onDesktopChange}
-              appearance={appearance}
-              onAppearanceChange={onAppearanceChange}
             />
+          </Tabs.Content>
+          <Tabs.Content value="appearance">
+            <AppearanceSection />
           </Tabs.Content>
         </Tabs.Root>
 

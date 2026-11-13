@@ -17,12 +17,12 @@
   width: 320px;
   height: 56px;
   overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.94);
+  border: 2px solid var(--app-chip-border);
   border-radius: 28px;
-  background: var(--gray-12);
-  color: var(--gray-1);
-  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
-  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  background: var(--app-chip-surface);
+  color: var(--app-chip-ink);
+  box-shadow: var(--app-chip-shadow);
+  transition: width var(--app-duration-morph) var(--app-ease-spring);
 }
 
 /* 整理中与闪示都收成圆：宽度从 320 落到 56，圆角不变即成正圆。 */
@@ -43,7 +43,7 @@
   opacity: 1;
   visibility: visible;
   transition:
-    opacity 120ms ease-out,
+    opacity var(--app-duration-base) var(--app-ease-out),
     visibility 0s linear 0s;
 }
 
@@ -54,8 +54,8 @@
   pointer-events: none;
   /* 先淡出再隐身：visibility 延后 120ms，波形的淡出才看得见。 */
   transition:
-    opacity 120ms ease-out,
-    visibility 0s linear 120ms;
+    opacity var(--app-duration-base) var(--app-ease-out),
+    visibility 0s linear var(--app-duration-base);
 }
 
 .cancel {
@@ -71,19 +71,19 @@
   color: inherit;
   cursor: pointer;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--app-duration-base) ease,
+    color var(--app-duration-base) ease;
 }
 
 /* 悬停/聚焦把石墨底反转到按钮上，与浮动球工具栏同一套反馈。 */
 .cancel:hover,
 .cancel:focus-visible {
-  background: var(--gray-1);
-  color: var(--gray-12);
+  background: var(--app-chip-ink);
+  color: var(--app-chip-surface);
 }
 
 .cancel:focus-visible {
-  outline: 2px solid var(--indigo-8);
+  outline: 2px solid var(--app-chip-focus);
   outline-offset: 1px;
 }
 
@@ -96,7 +96,8 @@
   opacity: 0;
   /* 纯装饰层叠在波形行上方，退出命中，否则透明时也会挡住取消钮。 */
   pointer-events: none;
-  transition: opacity 160ms ease-out 120ms;
+  transition: opacity var(--app-duration-slow) var(--app-ease-out)
+    var(--app-duration-base);
 }
 
 .shell[data-state='processing'] .spinner {
@@ -113,7 +114,7 @@
   opacity: 0;
   /* 最顶层装饰，退出命中，透明时也不能挡住下层的取消钮。 */
   pointer-events: none;
-  transition: opacity 140ms ease-out;
+  transition: opacity var(--app-duration-medium) var(--app-ease-out);
 }
 
 .shell[data-state='idle'][data-flash] .flash {
@@ -121,11 +122,11 @@
 }
 
 .shell[data-flash='success'] .flash {
-  color: var(--jade-11);
+  color: var(--app-flash-success);
 }
 
 .shell[data-flash='error'] .flash {
-  color: var(--red-11);
+  color: var(--app-flash-danger);
 }
 
 /* 减少动态效果由 global.css 统一把过渡时长压到近零：宽度变形与

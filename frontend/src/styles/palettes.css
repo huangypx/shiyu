@@ -1,0 +1,129 @@
+/* 内置主题色的颜色层。mono 仍复用 theme.css 里的 Radix 色阶，
+   这里只给 celadon / plum 换掉整套 --app-* 语义 token。
+
+   同一套值写两个选择器，是因为主题挂在两棵树上：主窗口的根容器自己
+   带着 React 传来的 data-palette；而 Radix 的 Dialog / Select / Toast
+   弹层渲染在 body 下的另一棵 .radix-themes 上，拿不到根容器的属性，
+   只能靠 html 上的同名属性做后代匹配。两条渲染路径都必须覆盖。
+
+   所有派生色都写成显式值：老 WebKitGTK 不支持 color-mix() 和
+   light-dark()，用它们会让整套主题在这类内核上直接失效。 */
+
+.radix-themes[data-palette='celadon'],
+html[data-palette='celadon'] .radix-themes {
+  --app-canvas: #d7eae1;
+  --app-surface: #f8f8f0;
+  --app-surface-subtle: #cfe5db;
+  --app-surface-hover: #c2dcd0;
+  --app-surface-active: #b6d5c6;
+  --app-ink: #0b372f;
+  --app-ink-soft: #31594d;
+  --app-ink-faint: #49665c;
+  --app-border: #b4d0c2;
+  --app-border-strong: #88ad9d;
+  --app-accent: #c3472c;
+  --app-accent-strong: #95351f;
+  --app-accent-soft: #f1d6c9;
+  --app-focus: #95351f;
+  --app-danger: #a92e21;
+  --app-danger-soft: #f6dacf;
+  --app-danger-border: #d9a08f;
+  --app-danger-halo: rgb(169 46 33 / 40%);
+  --app-success: #27644c;
+  --app-success-soft: #c6ded0;
+  --app-success-halo: rgb(39 100 76 / 38%);
+  --app-recording: #a92e21;
+  --app-recording-ink: #fff9ef;
+  --app-recording-halo: rgb(169 46 33 / 55%);
+  --app-chip-surface: #0b372f;
+  --app-chip-ink: #f8f8f0;
+  --app-chip-border: rgb(248 248 240 / 94%);
+  --app-chip-focus: #f8f8f0;
+  --app-wave-idle: rgb(248 248 240 / 38%);
+  --app-wave-active: rgb(255 249 239 / 92%);
+  --app-wave-arming: rgb(248 248 240 / 52%);
+  --app-wave-processing: rgb(248 248 240 / 68%);
+  --app-flash-success: #d6f2e2;
+  --app-flash-danger: #ffe3d9;
+}
+
+.radix-themes[data-palette='plum'],
+html[data-palette='plum'] .radix-themes {
+  --app-canvas: #3d2541;
+  --app-surface: #4a2b47;
+  --app-surface-subtle: #301b33;
+  --app-surface-hover: #583754;
+  --app-surface-active: #654260;
+  --app-ink: #ffe7d7;
+  --app-ink-soft: #ead1e7;
+  --app-ink-faint: #d0b5cf;
+  --app-border: #6c4c67;
+  --app-border-strong: #98768f;
+  --app-accent: #ffba8f;
+  --app-accent-strong: #ffceab;
+  --app-accent-soft: #684354;
+  --app-focus: #ffceab;
+  --app-danger: #ffacaa;
+  --app-danger-soft: #683748;
+  --app-danger-border: #8c5560;
+  --app-danger-halo: rgb(255 172 170 / 32%);
+  --app-success: #a9dfc0;
+  --app-success-soft: #33483f;
+  --app-success-halo: rgb(169 223 192 / 32%);
+  --app-recording: #ffacaa;
+  --app-recording-ink: #3d2541;
+  --app-recording-halo: rgb(255 172 170 / 45%);
+  --app-chip-surface: #ffe7d7;
+  --app-chip-ink: #4a2b47;
+  --app-chip-border: rgb(74 43 71 / 94%);
+  --app-chip-focus: #4a2b47;
+  --app-wave-idle: rgb(74 43 71 / 38%);
+  --app-wave-active: rgb(61 37 65 / 85%);
+  --app-wave-arming: rgb(74 43 71 / 55%);
+  --app-wave-processing: rgb(74 43 71 / 68%);
+  --app-flash-success: #1f5136;
+  --app-flash-danger: #8c1d18;
+}
+
+/* Radix 内部变量桥：只映射 Radix 组件实际读取、且和自定义表面会明显
+   冲突的那些台阶。其余半透明灰阶留给主题选中的 sage / mauve 色阶，
+   全量映射反而会调出意想不到的颜色。 */
+.radix-themes:is([data-palette='celadon'], [data-palette='plum']),
+html:is([data-palette='celadon'], [data-palette='plum']) .radix-themes {
+  --color-panel-solid: var(--app-surface);
+  --color-panel: var(--app-surface);
+  --color-surface: var(--app-surface);
+  --gray-1: var(--app-surface);
+  --gray-2: var(--app-canvas);
+  --gray-3: var(--app-surface-subtle);
+  --gray-6: var(--app-border);
+  --gray-9: var(--app-ink-faint);
+  --gray-11: var(--app-ink-soft);
+  --gray-12: var(--app-ink);
+  --gray-a3: var(--app-surface-hover);
+  --gray-a4: var(--app-surface-active);
+  --gray-a5: var(--app-border);
+  --gray-a7: var(--app-border-strong);
+  --gray-a11: var(--app-ink-soft);
+  --focus-8: var(--app-accent-strong);
+  --accent-indicator: var(--app-accent);
+  --accent-track: var(--app-accent);
+  --accent-9: var(--app-accent);
+  --accent-contrast: var(--app-chip-ink);
+  --accent-a4: var(--app-accent-soft);
+  --accent-a11: var(--app-accent-strong);
+  --accent-12: var(--app-accent-strong);
+  color: var(--app-ink);
+}
+
+/* 设置弹窗底部的保存按钮用 solid + high-contrast，Radix 默认给的是
+   近黑底或近白底，落在自定义面板上像贴了张反色纸；改成跟主题芯片
+   一致，才和其余强调元素同源。 */
+html:is([data-palette='celadon'], [data-palette='plum'])
+  .rt-BaseDialogContent
+  .rt-BaseButton.rt-variant-solid.rt-high-contrast[data-accent-color='gray']:not(
+    [data-disabled]
+  ) {
+  color: var(--app-chip-ink);
+  background: var(--app-chip-surface);
+}
