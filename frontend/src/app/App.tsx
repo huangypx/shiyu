@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from '@/app/router';
 import { useDesktopBridge } from '@/app/useDesktopBridge';
 import { useDesktopNotices } from '@/app/useDesktopNotices';
+import { useMainWindowReady } from '@/app/useMainWindowReady';
 import { useSessionBridge } from '@/app/useSessionBridge';
 import { useCallsStore } from '@/features/calls/callsStore';
 import CloseDialog from '@/features/desktop/CloseDialog';
@@ -27,6 +28,7 @@ export default function App() {
   useDesktopBridge();
   useSessionBridge();
   useDesktopNotices();
+  useMainWindowReady();
   useAppShortcuts();
   const triggerRecording = useCallback(() => {
     toggleRecording();

@@ -74,6 +74,15 @@ export function IsWindowMaximised(): $CancellablePromise<boolean> {
 }
 
 /**
+ * MarkMainWindowReady 由主窗口前端在首次提交后调用。主窗口创建时
+ * 先保持隐藏，等这里收到信号再 Show：否则 macOS 会先把原生交通灯
+ * 画出来，而 WKWebView 还没有任何内容。
+ */
+export function MarkMainWindowReady(): $CancellablePromise<void> {
+    return $Call.ByID(3598977325);
+}
+
+/**
  * MinimiseWindow 支撑 Windows/Linux 的自绘标题栏按钮；
  * macOS 窗口改用系统自带的黄色交通灯。
  */

@@ -16,6 +16,9 @@ type tray struct {
 	icon       *application.SystemTray
 	showItem   *application.MenuItem
 	hideItem   *application.MenuItem
+	// bubbleSeparator 是悬浮球两项与“打开主窗口”之间的分隔线。
+	// 两项都隐藏时它也要隐藏，否则菜单顶部会留下一条空分隔。
+	bubbleSeparator *application.MenuItem
 }
 
 // newTray 装配托盘。不支持托盘的平台（Linux）返回 nil，所有方法
@@ -28,12 +31,22 @@ func newTray(c *Controller) *tray {
 
 	menu := c.desktop.Menu.New()
 	t.showItem = menu.Add("显示悬浮球").OnClick(func(*application.Context) {
+		// 主窗口可见时没有悬浮球可显示，点了也不该把主窗口换走。
+		if c.currentMode() == ModeMain {
+			return
+		}
 		_ = c.SetBubbleHidden(false)
 	})
 	t.hideItem = menu.Add("隐藏悬浮球").OnClick(func(*application.Context) {
+		// 只有悬浮球真的在屏幕上时“隐藏”才成立；主窗口可见时点中
+		// 这一项会把主窗口一起收走。
+		if c.currentMode() != ModeBubble {
+			return
+		}
 		_ = c.SetBubbleHidden(true)
 	})
 	menu.AddSeparator()
+	t.bubbleSeparator = menu.ItemAt(2)
 	menu.Add("打开主窗口").OnClick(func(*application.Context) {
 		_ = c.ShowMainWindow()
 	})
@@ -56,30 +69,61 @@ func newTray(c *Controller) *tray {
 	return t
 }
 
-// syncVisibility 让「显示/隐藏悬浮球」两项互斥可用：隐藏态只能显示，
-// 可见态只能隐藏。菜单项的启用状态由 emitState 在每次模式/隐藏态
-// 变化后刷新。
+// syncVisibility 按当前可见面组织两个悬浮球菜单项：主窗口可见时
+// 两项都不出现；悬浮球可见时只留“隐藏”；只剩托盘/胶囊时只留
+// “显示”。菜单项的显隐与启用状态由 emitState 在每次模式变化后刷新。
 func (t *tray) syncVisibility() {
-	if t == nil || t.controller == nil || t.controller.app == nil {
+	if t == nil || t.controller == nil {
 		return
 	}
-	hidden := t.controller.app.GetDesktopConfig().BubbleHidden
+	state := trayBubbleMenuStateFor(t.controller.currentMode())
 	// 绑定方法跑在 HTTP/goroutine 上，而 NSMenuItem 只能在主线程
-	// 修改；直接在调用线程 SetEnabled 会在 AppKit 里 SIGSEGV。
+	// 修改；直接在调用线程 SetHidden/SetEnabled 会在 AppKit 里 SIGSEGV。
 	application.InvokeSync(func() {
-		t.showItem.SetEnabled(hidden)
-		t.hideItem.SetEnabled(!hidden)
+		t.showItem.SetHidden(state.showHidden).SetEnabled(!state.showHidden)
+		t.hideItem.SetHidden(state.hideHidden).SetEnabled(!state.hideHidden)
+		if t.bubbleSeparator != nil {
+			t.bubbleSeparator.SetHidden(state.showHidden && state.hideHidden)
+		}
 	})
 }
 
-// toggleBubble 是 Windows 左键的默认动作：在隐藏与显示之间切换。
-// macOS 左键开菜单，不走这里。
+// trayBubbleMenuState 描述两个悬浮球菜单项此刻该不该出现。假值
+// 表示可见且可点；两项都隐藏时菜单里只剩打开主窗口和退出。
+type trayBubbleMenuState struct {
+	showHidden bool
+	hideHidden bool
+}
+
+// trayBubbleMenuStateFor 用当前可见面而不是 bubbleHidden 判断菜单：
+// 主窗口可见时悬浮球并不存在，两项都点不得；只剩托盘/胶囊时才需要
+// “显示悬浮球”，悬浮球可见时才需要“隐藏悬浮球”。
+func trayBubbleMenuStateFor(mode string) trayBubbleMenuState {
+	switch normalizeMode(mode) {
+	case ModeMain:
+		return trayBubbleMenuState{showHidden: true, hideHidden: true}
+	case ModeBubble:
+		return trayBubbleMenuState{showHidden: true}
+	default:
+		return trayBubbleMenuState{hideHidden: true}
+	}
+}
+
+// toggleBubble 是 Windows 左键的默认动作。主窗口可见时没有悬浮球，
+// 左键只把主窗口叫到前台，不能把界面整个收走；其余情况在显示和
+// 隐藏悬浮球之间切换。macOS 左键开菜单，不走这里。
 func (t *tray) toggleBubble() {
-	if t == nil || t.controller == nil || t.controller.app == nil {
+	if t == nil || t.controller == nil {
 		return
 	}
-	hidden := t.controller.app.GetDesktopConfig().BubbleHidden
-	_ = t.controller.SetBubbleHidden(!hidden)
+	switch t.controller.currentMode() {
+	case ModeBubble:
+		_ = t.controller.SetBubbleHidden(true)
+	case ModeMain:
+		_ = t.controller.ShowMainWindow()
+	default:
+		_ = t.controller.SetBubbleHidden(false)
+	}
 }
 
 // destroy 只在 ServiceShutdown 调一次，移除菜单栏/任务栏图标。

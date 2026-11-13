@@ -60,6 +60,9 @@ func (c *Controller) mainWindowOptions(rect application.Rect) application.Webvie
 		InitialPosition:  application.WindowXY,
 		X:                rect.X,
 		Y:                rect.Y,
+		// 主窗口先隐藏创建，等前端首帧提交后再 Show。否则 macOS
+		// 会先把原生交通灯画出来，WebView 还停在透明空白页。
+		Hidden: true,
 	}
 	if runtime.GOOS == "darwin" {
 		opts.Mac = application.MacWindow{

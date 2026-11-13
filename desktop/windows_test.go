@@ -131,6 +131,10 @@ func TestMainWindowOptionsKeepTitledChromeOnMac(t *testing.T) {
 	if opts.Width != mainWidth || opts.Height != mainHeight {
 		t.Fatalf("main size = %dx%d", opts.Width, opts.Height)
 	}
+	// 主窗口必须等前端首帧就绪后再显示，否则 macOS 会先画交通灯。
+	if !opts.Hidden {
+		t.Fatal("main window must start hidden until the frontend reports its first frame")
+	}
 	if runtime.GOOS == "darwin" {
 		if opts.Frameless {
 			t.Fatal("macOS main window must keep the titled frame")

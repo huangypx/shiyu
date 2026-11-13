@@ -23,6 +23,11 @@ const (
 	// 约 320ms，留 400ms 再销毁窗口，宽限内连按热键可以复用同一个
 	// 胶囊。
 	overlayHideGrace = 400 * time.Millisecond
+
+	// mainRevealFallback 是主窗口前端迟迟没有报告首帧时的兜底
+	// 显示时间。正常路径由前端挂载后调用 MarkMainWindowReady，
+	// 宽限只是防止脚本异常把主窗口永久留在隐藏状态。
+	mainRevealFallback = 3 * time.Second
 )
 
 // State 是桌面外壳的全局状态。窗口角色与是否只剩托盘分开表达：
@@ -75,13 +80,17 @@ type Controller struct {
 
 	visible string
 	windows map[string]*application.WebviewWindow
-	// closeAllowed 按窗口记录“这是控制器主动关闭”。用户点关闭时
-	// 不在表里，仍然走确认流程。不能用一个全局布尔值：旧主窗口的
-	// 延迟关闭可能晚于新主窗口创建。
-	closeAllowed sync.Map
 
 	mainBounds    application.Rect
 	hasMainBounds bool
+	// mainReady 表示当前主窗口的前端已经完成首次提交。未就绪时
+	// 窗口保持隐藏，等 MarkMainWindowReady 到达后再显示，避免
+	// macOS 先画出原生交通灯、WebView 还是空白。
+	mainReady bool
+	// mainShowFocus 记住这次显示是否需要聚焦，首帧就绪时补上。
+	mainShowFocus bool
+	// mainRevealTimer 是前端未报告首帧时的兜底显示定时器。
+	mainRevealTimer *time.Timer
 
 	session          SessionState
 	overlayHideTimer *time.Timer
@@ -174,6 +183,10 @@ func (c *Controller) ServiceShutdown() error {
 		c.overlayHideTimer.Stop()
 		c.overlayHideTimer = nil
 	}
+	if c.mainRevealTimer != nil {
+		c.mainRevealTimer.Stop()
+		c.mainRevealTimer = nil
+	}
 	if c.hotkey != nil {
 		c.hotkey.Stop()
 		c.hotkey = nil
@@ -197,10 +210,7 @@ func (c *Controller) GetState() State {
 	closePending := c.closePending
 	c.mu.RUnlock()
 
-	mode := visible
-	if mode == "" {
-		mode = ModeHidden
-	}
+	mode := normalizeMode(visible)
 	var cfg backend.DesktopConfig
 	if c.app != nil {
 		cfg = c.app.GetDesktopConfig()
@@ -405,6 +415,13 @@ func (c *Controller) TakeMainCommands() []string {
 	}
 	c.pendingSettings = false
 	return []string{"settings"}
+}
+
+// MarkMainWindowReady 由主窗口前端在首次提交后调用。主窗口创建时
+// 先保持隐藏，等这里收到信号再 Show：否则 macOS 会先把原生交通灯
+// 画出来，而 WKWebView 还没有任何内容。
+func (c *Controller) MarkMainWindowReady() {
+	c.revealMain(c.current(ModeMain))
 }
 
 // ShowMainWindow 销毁悬浮球并创建主窗口；录音仍在 Go 内继续。
@@ -659,20 +676,30 @@ func (c *Controller) onMainClosing(window *application.WebviewWindow, event *app
 	if quitting {
 		return
 	}
-	if _, allowed := c.closeAllowed.Load(window); allowed {
-		return
+	// 控制器收起主窗口时先从 windows 摘除，再延迟 Close；此时窗口
+	// 已经不是当前主窗口，应当直接放行。这里用窗口身份而不是
+	// “刚发出关闭”的瞬时标记：WindowClosing 由另一个 goroutine
+	// 异步派发，标记可能在事件到达前就被清掉，导致收起时误弹关闭
+	// 确认框。
+	if c.isCurrentMainWindow(window) {
+		event.Cancel()
+		go func() { _ = c.RequestClose() }()
 	}
-	event.Cancel()
-	go func() { _ = c.RequestClose() }()
+}
+
+// isCurrentMainWindow 判断窗口是否仍是当前主窗口。用户发起的关闭
+// 只可能落在当前主窗口上；已被 detachAndClose 摘除的旧窗口是控制器
+// 自己的延迟关闭，必须放行。
+func (c *Controller) isCurrentMainWindow(window *application.WebviewWindow) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.windows[ModeMain] == window
 }
 
 func (c *Controller) showMainInternal(focus bool) {
 	if window := c.current(ModeMain); window != nil {
 		c.setVisible(ModeMain)
-		window.Show()
-		if focus {
-			window.Focus()
-		}
+		c.showMainIfReady(window, focus)
 		c.clearBubbleHidden()
 		c.emitState()
 		return
@@ -684,12 +711,75 @@ func (c *Controller) showMainInternal(focus bool) {
 		return
 	}
 	c.setVisible(ModeMain)
+	c.showMainIfReady(window, focus)
+	c.clearBubbleHidden()
+	c.emitState()
+}
+
+// showMainIfReady 尝试显示主窗口。首帧还没就绪时只记录聚焦意图，
+// 等 MarkMainWindowReady 到达后再补一次 Show/Focus。
+func (c *Controller) showMainIfReady(window *application.WebviewWindow, focus bool) {
+	if window == nil {
+		return
+	}
+	c.mu.Lock()
+	ready := c.mainReady
+	if !ready && focus {
+		c.mainShowFocus = true
+	}
+	c.mu.Unlock()
+	if !ready {
+		return
+	}
 	window.Show()
 	if focus {
 		window.Focus()
 	}
-	c.clearBubbleHidden()
-	c.emitState()
+}
+
+// revealMain 在确认窗口仍是当前主窗口且尚未就绪后显示它。前端
+// 首帧回调和兜底定时器都走这里，重复调用是幂等的。
+func (c *Controller) revealMain(window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.mainReady || c.windows[ModeMain] != window {
+		c.mu.Unlock()
+		return
+	}
+	c.mainReady = true
+	focus := c.mainShowFocus
+	c.mainShowFocus = false
+	if c.mainRevealTimer != nil {
+		c.mainRevealTimer.Stop()
+		c.mainRevealTimer = nil
+	}
+	c.mu.Unlock()
+	window.Show()
+	if focus {
+		window.Focus()
+	}
+}
+
+// armMainRevealFallback 在窗口运行时就绪后启动兜底显示。正常情况
+// 下前端会先调用 MarkMainWindowReady，定时器随即被取消；只有前端
+// 脚本异常时才需要它把窗口从隐藏状态救回来。
+func (c *Controller) armMainRevealFallback(window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.mainReady || c.windows[ModeMain] != window {
+		return
+	}
+	if c.mainRevealTimer != nil {
+		c.mainRevealTimer.Stop()
+	}
+	c.mainRevealTimer = time.AfterFunc(mainRevealFallback, func() {
+		c.revealMain(window)
+	})
 }
 
 func (c *Controller) showBubbleInternal(focus bool) {
@@ -780,6 +870,15 @@ func (c *Controller) ensureWindow(role string) *application.WebviewWindow {
 
 	c.mu.Lock()
 	c.windows[role] = window
+	if role == ModeMain {
+		// 新主窗口重新等待前端首帧；旧窗口的兜底定时器不能带过来。
+		c.mainReady = false
+		c.mainShowFocus = false
+		if c.mainRevealTimer != nil {
+			c.mainRevealTimer.Stop()
+			c.mainRevealTimer = nil
+		}
+	}
 	c.mu.Unlock()
 
 	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
@@ -798,6 +897,12 @@ func (c *Controller) prepareWindow(role string, window *application.WebviewWindo
 		return
 	}
 	setNativeWindowBounds(window, rect)
+	if role == ModeMain {
+		// 前端正常情况下会主动报告首帧；这里只兜底，避免脚本异常时
+		// 主窗口永远停在隐藏状态。
+		c.armMainRevealFallback(window)
+		return
+	}
 	if role != ModeBubble {
 		return
 	}
@@ -821,6 +926,12 @@ func (c *Controller) detachAndClose(role string) {
 	delete(c.windows, role)
 	if role == ModeMain {
 		c.closePending = false
+		c.mainReady = false
+		c.mainShowFocus = false
+		if c.mainRevealTimer != nil {
+			c.mainRevealTimer.Stop()
+			c.mainRevealTimer = nil
+		}
 	}
 	c.mu.Unlock()
 	c.windowMu.Unlock()
@@ -836,9 +947,9 @@ func (c *Controller) detachAndClose(role string) {
 	}
 	window.Hide()
 	time.AfterFunc(250*time.Millisecond, func() {
-		c.closeAllowed.Store(window, true)
+		// 此时窗口已从 windows 摘除，onMainClosing 会按身份判断
+		// 这是控制器主动关闭并直接放行，不再依赖瞬时放行标记。
 		window.Close()
-		c.closeAllowed.Delete(window)
 	})
 }
 
@@ -1007,6 +1118,24 @@ func (c *Controller) clearBubbleHidden() {
 	if c.app.GetDesktopConfig().BubbleHidden {
 		_ = c.app.SetBubbleHidden(false)
 	}
+}
+
+// normalizeMode 把“没有可见面”的空串统一成 hidden，让桌面状态和
+// 托盘菜单共用同一个判据。
+func normalizeMode(mode string) string {
+	if mode == "" {
+		return ModeHidden
+	}
+	return mode
+}
+
+// currentMode 返回当前可见面，供托盘菜单等只关心状态的调用方使用。
+// 只读 c.visible：bubbleHidden 是持久化偏好，不能代表此刻屏幕上
+// 到底有没有悬浮球。
+func (c *Controller) currentMode() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return normalizeMode(c.visible)
 }
 
 // setVisible 记录当前可见面，并同步 Dock/任务栏图标：只有主窗口在

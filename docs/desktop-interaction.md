@@ -9,7 +9,7 @@
 - **main**：titled window，macOS 使用 `MacTitleBarHidden` 保留真实的红黄绿交通灯；Windows/Linux 保持 frameless，自绘 36px 顶带。它是纯视图，不采集麦克风。
 - **bubble**：独立 92×126 透明 frameless 窗口，固定尺寸、置顶（可配置），同样只渲染 Go 的会话状态。
 - **overlay**：独立 360×72 透明窗口，底部居中、强制置顶。macOS 使用非激活 NSPanel（`MacPanelPreferences.NonActivating`），Windows 使用 `WS_EX_NOACTIVATE`，显示和点击都不抢焦点。它只是 Go 会话的视图，负责渲染胶囊 UI。
-- 窗口按需创建，切换时先隐藏、250ms 后再销毁旧窗口；悬浮球位置持久化到 `desktop.bubblePosition`，主窗口 bounds 只保存在内存里。透明 WKWebView 依赖 `private_mac_apis` 构建标签；Windows 的悬浮球/胶囊用 `DisableFramelessWindowDecorations` 收掉 DWM 边框。
+- 窗口按需创建，切换时先隐藏、250ms 后再销毁旧窗口；悬浮球位置持久化到 `desktop.bubblePosition`，主窗口 bounds 只保存在内存里。运行期新建的主窗口先以 `Hidden` 状态启动，等前端完成首次提交后由 `MarkMainWindowReady` 显示，避免 macOS 交通灯先于页面内容出现。透明 WKWebView 依赖 `private_mac_apis` 构建标签；Windows 的悬浮球/胶囊用 `DisableFramelessWindowDecorations` 收掉 DWM 边框。
 
 Wails 只提供窗口层原生能力；网页里的按钮、输入框和图标仍是 HTML/CSS，不会变成 NSButton 或 Win32 控件。真正需要 100% 原生控件时，应改用 SwiftUI/WinUI，或做原生外壳。
 
@@ -64,9 +64,9 @@ macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WK
 
 ### 收起与展开
 
-右上角的动作按钮把主窗口收进悬浮球：记录主窗口 bounds，销毁主窗口，在 `desktop.bubblePosition` 的位置创建独立的 92×126 悬浮球窗口。展开则相反：记录悬浮球位置，销毁悬浮球，按记忆的 bounds 创建主窗口。没有逐帧缩放、水滴或淡入动画。
+右上角的动作按钮把主窗口收进悬浮球：记录主窗口 bounds，销毁主窗口，在 `desktop.bubblePosition` 的位置创建独立的 92×126 悬浮球窗口。展开则相反：记录悬浮球位置，销毁悬浮球，按记忆的 bounds 创建主窗口。没有逐帧缩放、水滴或淡入动画；新主窗口在前端首帧提交前保持隐藏，所以交通灯与内容一起出现，不会出现只有交通灯的空窗。
 
-切换时旧窗口先 `Hide()`，250ms 后再 `Close()`。绑定调用（例如悬浮球的展开按钮）返回后 Wails 还要把 HTTP 响应写回发起窗口，立即销毁会让 transport 访问已释放的 webview。主窗口 bounds 只保存在内存里，重启后回到屏幕居中；悬浮球位置持久化。`prefers-reduced-motion` 不需要特殊处理，因为切换本身没有动画。
+切换时旧窗口先 `Hide()`，250ms 后再 `Close()`。绑定调用（例如悬浮球的展开按钮）返回后 Wails 还要把 HTTP 响应写回发起窗口，立即销毁会让 transport 访问已释放的 webview。控制器主动关闭的窗口在 `Close()` 前已经从窗口表摘除，关闭钩子按窗口身份判断并直接放行；用户点交通灯或关闭按钮时窗口仍是当前主窗口，才进入确认流程，因此收起时不会误弹确认框。主窗口 bounds 只保存在内存里，重启后回到屏幕居中；悬浮球位置持久化。`prefers-reduced-motion` 不需要特殊处理，因为切换本身没有动画。
 
 圆圈的状态只用颜色、图标和尺寸表达：石墨色麦克风表示待录音，麦克风外圈的呼吸环表示正在开启麦克风（此时球体不缩放，说明还没开始收音），红色方块表示录音中且球体会随说话音量放大到最多约 1.12 倍并带一圈音晕，旋转图标表示整理中；完成后按钮会短暂闪光，因为 92px 宽的浮动窗放不下 Toast。静止时球保持 72px，放大后加外圈仍在顶部的 92×92 球区内，不会被窗口边界裁掉；工具栏在球下方，不参与音量缩放。系统开启「减少动态效果」时缩放幅度降到几乎不可见，音量改由音晕透明度表达。
 
@@ -74,7 +74,7 @@ macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WK
 
 系统托盘图标常驻：无论悬浮球是否隐藏，macOS 菜单栏与 Windows 右下角都有拾语图标。托盘由 `desktop/tray.go` 在 `ServiceStartup` 里通过 `app.SystemTray.New()` 装配（不手动调用 `Run()`，由 Wails 在应用运行后补跑），退出时 `Destroy()`。因为托盘常驻，关闭主窗口不再退出进程（`ApplicationShouldTerminateAfterLastWindowClosed: false`），退出只走托盘菜单或悬浮球右键菜单的「退出拾语」。
 
-托盘菜单四项：「显示悬浮球」「隐藏悬浮球」（按当前可见性互斥禁用）、「打开主窗口」、分隔、「退出拾语」。左键单击行为按平台区分：macOS 打开菜单（符合菜单栏惯例）；Windows 切换悬浮球显隐（隐藏→恢复到浮动模式并聚焦，可见→持久化隐藏），右键打开菜单。
+托盘菜单按当前可见面组织：「显示悬浮球」「隐藏悬浮球」只在对应形态出现——主窗口可见时两项都隐藏，悬浮球可见时只留「隐藏悬浮球」，只剩托盘/胶囊时只留「显示悬浮球」；随后是「打开主窗口」和分隔后的「退出拾语」。这样主窗口可见时没有可点的「隐藏悬浮球」，不会把界面一起收走。左键单击行为按平台区分：macOS 打开菜单（符合菜单栏惯例）；Windows 左键在主窗口可见时只聚焦主窗口，悬浮球可见时隐藏到托盘，只剩托盘/胶囊时显示悬浮球，右键打开菜单。
 
 关闭主窗口后应用从 Dock 与任务栏消失：macOS 把激活策略切成 `NSApplicationActivationPolicyAccessory`（`desktop/dock_darwin.go`），Dock 图标、菜单栏应用菜单和 ⌘Tab 条目一起收走；主窗口重新出现前先恢复 `Regular` 再 `Show`/`Focus`，图标随之回来。启动时的策略由 `main.go` 按 `desktop.InitialMode` 预先选好，避免先以常规应用启动再收回去（那样还会白抢一次焦点）。Windows 不额外调 Win32：主窗口走 `Hide()` + `Close()` 真销毁，任务栏按钮自己消失，悬浮球和胶囊本来就在创建时挂 `HiddenOnTaskbar`。只剩托盘或悬浮球时，恢复入口因此只剩托盘菜单与悬浮球的「展开主窗口」。
 
@@ -84,7 +84,7 @@ macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WK
 
 「隐藏悬浮球」是持久化动作，写入 `desktop.bubbleHidden`（见 `docs/storage.md`），重启后仍只剩托盘。入口有三处：悬浮球右键菜单、托盘菜单、设置页「桌面行为」开关，全部走 `Controller.SetBubbleHidden` 这一条写入路径；`SaveDesktopConfig` 兜底保留该字段，设置页保存其它偏好不会重置隐藏态。若隐藏时会话仍在进行（录音/整理），不整个藏掉窗口，而是切到底部胶囊继续展示波形与取消，结束后由隐藏定时器自动收回仅托盘；空闲时才整体隐藏，从主窗口离开时记住主窗口位置便于之后恢复。恢复入口：托盘菜单「显示悬浮球」、Windows 托盘左键、设置页开关。Linux 没有托盘实现，禁止持久化隐藏（菜单项退回临时 `HideWindow()`），避免隐藏后无从恢复。
 
-启动时 `bubbleHidden=true` 不创建任何窗口，首次热键直接创建可见的 overlay 胶囊；WKWebView 不需要在隐藏窗口上初始化。
+启动时 `bubbleHidden=true` 不创建任何窗口，首次热键直接创建可见的 overlay 胶囊。只有主窗口会在隐藏状态下初始化 WKWebView：它必须先完成首帧提交，才能连交通灯一起显示。
 
 全局快捷键由 Go 直接注册并驱动原生采集，不再经过前端队列：
 

@@ -490,6 +490,13 @@ export function showMainWindow() {
   return desktopOnly(() => Controller.ShowMainWindow());
 }
 
+// markMainWindowReady 告诉 Go 主窗口已经完成首次提交。主窗口在原生层
+// 先以隐藏状态创建，收到这个信号后才显示，避免 macOS 交通灯先于
+// 页面内容出现。
+export function markMainWindowReady() {
+  return desktopOnly(() => Controller.MarkMainWindowReady());
+}
+
 export function hideWindow() {
   return desktopOnly(() => Controller.HideWindow());
 }

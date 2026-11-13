@@ -3,6 +3,8 @@ package desktop
 import (
 	"runtime"
 	"testing"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestControllerRequiresStartupForWindowMode(t *testing.T) {
@@ -91,6 +93,34 @@ func TestPublishSessionStateIncrementsRevision(t *testing.T) {
 	}
 	if session.Host != ModeOverlay {
 		t.Fatalf("host = %q, want overlay", session.Host)
+	}
+}
+
+func TestNormalizeModeMapsEmptyToHidden(t *testing.T) {
+	if got := normalizeMode(""); got != ModeHidden {
+		t.Fatalf("empty mode normalized to %q, want %q", got, ModeHidden)
+	}
+	if got := normalizeMode(ModeBubble); got != ModeBubble {
+		t.Fatalf("bubble mode normalized to %q, want %q", got, ModeBubble)
+	}
+}
+
+func TestMainCloseOnlyNeedsConfirmationForCurrentWindow(t *testing.T) {
+	controller := NewController(nil, nil)
+	current := &application.WebviewWindow{}
+	stale := &application.WebviewWindow{}
+	controller.windows[ModeMain] = current
+
+	if !controller.isCurrentMainWindow(current) {
+		t.Fatal("the registered main window must be treated as current")
+	}
+	if controller.isCurrentMainWindow(stale) {
+		t.Fatal("a detached main window must be allowed to close without asking")
+	}
+
+	delete(controller.windows, ModeMain)
+	if controller.isCurrentMainWindow(current) {
+		t.Fatal("an unregistered window must not be treated as current")
 	}
 }
 
