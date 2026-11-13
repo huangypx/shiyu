@@ -1,7 +1,6 @@
 import { Button, Dialog, Flex, Tabs, Text } from '@radix-ui/themes';
 import { ShieldCheck } from 'lucide-react';
 
-import type { Appearance } from '@/store/uiStore';
 import type {
   DesktopSettings,
   DesktopState,
@@ -22,8 +21,6 @@ type Props = {
   desktop: DesktopSettings;
   desktopState?: DesktopState;
   onDesktopChange: (patch: Partial<DesktopSettings>) => void;
-  appearance: Appearance;
-  onAppearanceChange: (appearance: Appearance) => void;
 };
 
 // 设置弹窗不进路由：浮动球的设置图标与全局快捷键都可能
@@ -36,8 +33,6 @@ export default function SettingsDialog({
   desktop,
   desktopState,
   onDesktopChange,
-  appearance,
-  onAppearanceChange,
 }: Props) {
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -69,8 +64,6 @@ export default function SettingsDialog({
               desktop={desktop}
               desktopState={desktopState}
               onDesktopChange={onDesktopChange}
-              appearance={appearance}
-              onAppearanceChange={onAppearanceChange}
             />
           </Tabs.Content>
         </Tabs.Root>

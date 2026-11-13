@@ -15,6 +15,7 @@ type SessionState = {
   stage: SessionStage;
   transcript: string;
   organized: string;
+  bubbleResult: string;
   metrics: CallMetrics;
   elapsedMs: number;
   copied: boolean;
@@ -22,6 +23,7 @@ type SessionState = {
   setStage: (stage: SessionStage) => void;
   setTranscript: (transcript: string) => void;
   setOrganized: (organized: string) => void;
+  setBubbleResult: (bubbleResult: string) => void;
   setMetrics: (metrics: CallMetrics) => void;
   setElapsedMs: (elapsedMs: number) => void;
   setCopied: (copied: boolean) => void;
@@ -33,6 +35,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
   stage: null,
   transcript: '',
   organized: '',
+  bubbleResult: '',
   metrics: {},
   elapsedMs: 0,
   copied: false,
@@ -40,9 +43,17 @@ export const useSessionStore = create<SessionState>()((set) => ({
   setStage: (stage) => set({ stage }),
   setTranscript: (transcript) => set({ transcript }),
   setOrganized: (organized) => set({ organized }),
+  setBubbleResult: (bubbleResult) => set({ bubbleResult }),
   setMetrics: (metrics) => set({ metrics }),
   setElapsedMs: (elapsedMs) => set({ elapsedMs }),
   setCopied: (copied) => set({ copied }),
   resetDraft: () =>
-    set({ transcript: '', organized: '', metrics: {}, stage: null }),
+    set({
+      transcript: '',
+      organized: '',
+      bubbleResult: '',
+      copied: false,
+      metrics: {},
+      stage: null,
+    }),
 }));

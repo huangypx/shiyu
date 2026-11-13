@@ -1,91 +1,155 @@
-.topbar {
+.titlebar {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   height: var(--app-header-height);
-  padding: 0 14px 0 18px;
+  padding-left: max(clamp(16px, 2.2vw, 34px), var(--app-titlebar-inset));
   border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface);
-  /* 侧栏收起/展开时内容跟着让位，而不是整段横移一步。 */
-  transition: padding-left 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  /* 顶带其余部分是原生拖拽手柄。 */
+  background: var(--app-surface-subtle);
   --wails-draggable: drag;
 }
 
-/* 收起时压在最左边的两个按钮。这里刻意不用「延迟淡入」的入场动画：
-   动画在不活跃的窗口里会被 WebKit 暂停，带 fill-mode 的话按钮会一直
-   停在 opacity: 0，看起来就像消失；可见性必须由布局状态决定，不能
-   依赖动画真的跑过一遍。 */
-.leading {
-  display: flex;
+.brand {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-
-.topbar button,
-.topbar a {
+  gap: clamp(9px, 1vw, 15px);
+  color: var(--app-ink);
+  font-size: clamp(16px, 1.65vw, 25px);
+  font-weight: 650;
+  text-decoration: none;
   --wails-draggable: no-drag;
 }
 
-.menu {
-  display: none;
+.brand svg {
+  width: clamp(23px, 2.3vw, 35px);
+  height: auto;
 }
 
-.crumb {
+.toolbar {
   display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: clamp(12px, 1.2vw, 18px);
+  padding: clamp(13px, 1.28vw, 20px) clamp(16px, 2.9vw, 48px) 21px;
+  background: var(--app-toolbar-bg);
+  color: var(--app-toolbar-ink);
+}
+
+.action,
+.mic,
+.status button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: clamp(46px, 4.6vw, 70px);
+  height: clamp(46px, 4.6vw, 70px);
+  border: 0;
+  border-radius: 9px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.action:hover,
+.action[aria-current='page'],
+.action[data-state='open'],
+.status button:hover {
+  background: var(--app-surface-hover);
+}
+
+.action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.action svg,
+.mic svg {
+  width: clamp(26px, 2.62vw, 40px);
+  height: clamp(26px, 2.62vw, 40px);
+  stroke-width: 1.8;
+}
+
+.mic {
+  width: clamp(54px, 5.47vw, 84px);
+  height: clamp(50px, 5.08vw, 78px);
+  margin-right: clamp(6px, 0.6vw, 9px);
+  border-radius: clamp(9px, 0.9vw, 14px);
+  background: var(--app-mic-bg);
+  color: var(--app-mic-ink);
+  box-shadow: var(--app-mic-shadow, inset 0 0 0 1px rgb(255 255 255 / 12%));
+}
+
+.mic:hover {
+  background: var(--app-mic-hover);
+}
+
+.mic[data-state='recording'] {
+  color: var(--app-mic-stop);
+}
+
+.mic[data-state='recording'] svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mic:disabled {
+  cursor: wait;
+}
+
+.separator {
+  flex: 0 0 1px;
+  height: clamp(26px, 2.65vw, 41px);
+  margin: 0 3px;
+  background: var(--app-border-strong);
+}
+
+.more {
+  width: 36px;
+  margin-left: auto;
+  color: var(--app-ink-soft);
+}
+
+.more svg {
+  width: 21px;
+  height: 21px;
+}
+
+.status {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--app-ink-faint);
+  color: var(--app-ink-soft);
   font-size: 12px;
   white-space: nowrap;
 }
 
-/* 顶带要和窗口按钮挤在同一行：窄窗口下面包屑先截断，
-   不能把窗口按钮顶出可视区，也不能撑出横向滚动。 */
-.crumb strong {
-  overflow: hidden;
-  color: var(--app-ink);
-  font-weight: 500;
-  text-overflow: ellipsis;
+.status button {
+  width: 28px;
+  height: 28px;
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
+.elapsed {
+  font-variant-numeric: tabular-nums;
 }
 
-/* 窗口按钮贴齐窗口右上角：右内边距清零，hover 底色才能落到圆角上；
-   浮动按钮让出 6px，免得两个控件的 hover 区连成一片。 */
-.topbar[data-has-controls='true'] {
-  padding-right: 0;
-}
-
-.topbar[data-has-controls='true'] .actions {
-  margin-right: 6px;
-}
-
-/* 侧栏收起后顶栏从窗口左边缘开始，交通灯就落在它的内边距里：
-   内容必须让到 78px 之后，否则会和按钮重叠。 */
-.topbar[data-collapsed='true'] {
-  padding-left: max(18px, var(--app-titlebar-inset));
-  /* 和侧栏的滑出同步：内容先淡出 90ms，顶带再开始让位。 */
-  transition: padding-left 200ms cubic-bezier(0.4, 0, 0.2, 1) 90ms;
-}
-
-@media (max-width: 680px) {
-  .topbar {
-    /* 抽屉形态下侧栏是覆盖层，顶栏始终贴着窗口左边缘，
-       这里的让位和侧栏是否收起无关。 */
-    padding-right: 10px;
-    padding-left: max(10px, var(--app-titlebar-inset));
+@media (max-width: 620px) {
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 5px;
+    padding-bottom: 12px;
   }
 
-  .menu {
-    display: grid;
+  .action {
+    width: 40px;
+    height: 42px;
+  }
+
+  .status {
+    order: 1;
+    width: 100%;
+    min-height: 28px;
   }
 }

@@ -1,30 +1,38 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SIDEBAR_KEY } from '@/services/storage';
+import { APPEARANCE_KEY } from '@/services/storage';
 
-import { useUiStore } from './uiStore';
-
-describe('uiStore 侧栏折叠状态', () => {
+describe('外观偏好恢复', () => {
   beforeEach(() => {
     localStorage.clear();
-    useUiStore.setState({ sidebarCollapsed: false, sidebarOpen: false });
+    vi.resetModules();
   });
 
-  it('切换折叠并把结果写进本地存储', () => {
-    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
-    useUiStore.getState().toggleSidebarCollapsed();
-    expect(useUiStore.getState().sidebarCollapsed).toBe(true);
-    expect(JSON.parse(localStorage.getItem(SIDEBAR_KEY) ?? '{}')).toEqual({
-      collapsed: true,
+  it('旧配置缺少配色时选用青瓷，保留原有明暗偏好', async () => {
+    localStorage.setItem(
+      APPEARANCE_KEY,
+      JSON.stringify({ appearance: 'dark' }),
+    );
+    const { useUiStore } = await import('./uiStore');
+    expect(useUiStore.getState()).toMatchObject({
+      palette: 'celadon',
+      appearance: 'dark',
     });
-    useUiStore.getState().toggleSidebarCollapsed();
-    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+    useUiStore.getState().setPalette('plum');
+    vi.resetModules();
+    const restored = (await import('./uiStore')).useUiStore.getState();
+    expect(restored).toMatchObject({ palette: 'plum', appearance: 'dark' });
   });
 
-  it('折叠与抽屉是两个独立状态', () => {
-    useUiStore.getState().toggleSidebarCollapsed();
-    useUiStore.getState().openSidebar();
-    expect(useUiStore.getState().sidebarOpen).toBe(true);
-    expect(useUiStore.getState().sidebarCollapsed).toBe(true);
+  it('无有效配色和明暗值时使用默认偏好', async () => {
+    localStorage.setItem(
+      APPEARANCE_KEY,
+      JSON.stringify({ appearance: false, palette: 'unknown' }),
+    );
+    const { useUiStore } = await import('./uiStore');
+    expect(useUiStore.getState()).toMatchObject({
+      palette: 'celadon',
+      appearance: 'system',
+    });
   });
 });

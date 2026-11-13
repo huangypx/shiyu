@@ -5,6 +5,7 @@ import { useNotesStore } from '@/features/history/notesStore';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import { MOCK_ORGANIZED, MOCK_TRANSCRIPT } from '@/mocks/demo';
 import type { WavRecorderOptions } from '@/services/recorder';
+import { useDesktopStore } from '@/store/desktopStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUiStore } from '@/store/uiStore';
 import { DEFAULT_DESKTOP_SETTINGS, DEFAULT_SETTINGS } from '@/types/models';
@@ -26,7 +27,9 @@ const bridge = vi.hoisted(() => {
     stopRecording: vi.fn(),
     transcribe: vi.fn(),
     organize: vi.fn(),
-    pasteText: vi.fn(),
+    finishForegroundRecording: vi.fn(),
+    focusedBubbleInput: vi.fn(),
+    pasteBubbleResult: vi.fn(),
     copyText: vi.fn(),
     loadCalls: vi.fn(),
     clearCalls: vi.fn(),
@@ -109,7 +112,10 @@ describe('useRecordingSession', () => {
     bridge.stopRecording.mockResolvedValue(undefined);
     bridge.blobToDataUrl.mockResolvedValue('data:audio/wav;base64,AAAA');
     bridge.loadCalls.mockResolvedValue(undefined);
-    bridge.pasteText.mockResolvedValue(true);
+    bridge.finishForegroundRecording.mockResolvedValue('pasted');
+    bridge.focusedBubbleInput.mockResolvedValue('');
+    bridge.pasteBubbleResult.mockResolvedValue(false);
+    useDesktopStore.getState().setRuntime({ mode: 'main' });
     bridge.saveHistory.mockResolvedValue(undefined);
     bridge.loadHistory.mockResolvedValue(undefined);
     bridge.importHistory.mockResolvedValue(0);
@@ -126,12 +132,13 @@ describe('useRecordingSession', () => {
       stage: null,
       transcript: '',
       organized: '',
+      bubbleResult: '',
       metrics: {},
       elapsedMs: 0,
       copied: false,
     });
     useNotesStore.setState({ notes: [] });
-    useUiStore.setState({ notice: null, bubbleFlash: '' });
+    useUiStore.setState({ notice: null });
   });
 
   async function recordOnce() {
@@ -176,8 +183,159 @@ describe('useRecordingSession', () => {
     const session = useSessionStore.getState();
     expect(session.transcript).toBe('帮我把会议纪要整理一下');
     expect(session.organized).toBe('## 会议纪要\n- 待办');
-    expect(bridge.pasteText).toHaveBeenCalledWith('## 会议纪要\n- 待办');
+    expect(bridge.finishForegroundRecording).toHaveBeenCalledWith(
+      '## 会议纪要\n- 待办',
+      true,
+    );
     expect(useNotesStore.getState().notes[0].title).toBe('会议纪要');
+  });
+
+  it('浮动录音没有输入目标时保留完整结果，点击复制才写剪贴板', async () => {
+    useDesktopStore.getState().setRuntime({ mode: 'bubble' });
+    useSettingsStore.getState().patchDesktop({ showResultPreview: false });
+    bridge.transcribe.mockResolvedValue({ text: '两件事' });
+    const text = '- 定时间\n- 发邀请';
+    bridge.organize.mockResolvedValue({ text });
+    await recordOnce();
+    expect(useSessionStore.getState().bubbleResult).toBe(text);
+    expect(useNotesStore.getState().notes[0]).toMatchObject({
+      transcript: '两件事',
+      organized: text,
+    });
+    expect(bridge.finishForegroundRecording).not.toHaveBeenCalled();
+    expect(bridge.pasteBubbleResult).not.toHaveBeenCalled();
+    expect(bridge.copyText).not.toHaveBeenCalled();
+    const { result } = renderHook(() => useRecordingActions());
+    await act(() => result.current.copyResult());
+    expect(bridge.copyText).toHaveBeenCalledExactlyOnceWith(text);
+  });
+
+  it('整理完成时原生窗口已在后台，状态事件稍晚到达也能保留浮动结果', async () => {
+    bridge.transcribe.mockResolvedValue({ text: '原文' });
+    bridge.organize.mockResolvedValue({ text: '整理结果' });
+    bridge.finishForegroundRecording.mockResolvedValue('bubble');
+    await recordOnce();
+    expect(useSessionStore.getState().bubbleResult).toBe('整理结果');
+    expect(bridge.copyText).not.toHaveBeenCalled();
+  });
+
+  it('快捷键录音按按键时的输入框投递，空目标保留结果供复制', async () => {
+    useDesktopStore.getState().setRuntime({ mode: 'bubble' });
+    bridge.focusedBubbleInput.mockResolvedValue('later-editor');
+    bridge.pasteBubbleResult.mockResolvedValue(true);
+    bridge.transcribe.mockResolvedValue({ text: '你好。' });
+    bridge.organize.mockResolvedValue({ text: '你好。' });
+    const { result } = renderHook(() => useRecordingActions());
+    for (const target of ['original-editor', '']) {
+      await act(() => result.current.toggleRecording(target));
+      await act(() => result.current.toggleRecording());
+    }
+    expect(bridge.focusedBubbleInput).not.toHaveBeenCalled();
+    expect(bridge.pasteBubbleResult).toHaveBeenCalledExactlyOnceWith(
+      '你好。',
+      'original-editor',
+    );
+    expect(useSessionStore.getState().bubbleResult).toBe('你好。');
+  });
+
+  it.each([true, false])(
+    '浮动录音保留整理全文供复制，原输入框粘贴结果为 %s',
+    async (pasted) => {
+      useDesktopStore.getState().setRuntime({ mode: 'bubble' });
+      useSettingsStore.getState().patchDesktop({ showResultPreview: false });
+      bridge.focusedBubbleInput.mockResolvedValue('original');
+      bridge.pasteBubbleResult.mockResolvedValue(pasted);
+      bridge.transcribe.mockResolvedValue({ text: '原文' });
+      bridge.organize.mockResolvedValue({ text: '结果' });
+      await recordOnce();
+      expect(bridge.pasteBubbleResult).toHaveBeenCalledWith('结果', 'original');
+      expect(useSessionStore.getState().bubbleResult).toBe('结果');
+      expect(useUiStore.getState().notice).toBeNull();
+      const { result } = renderHook(() => useRecordingActions());
+      await act(() => result.current.copyResult());
+      expect(bridge.copyText).toHaveBeenCalledExactlyOnceWith('结果');
+      expect(bridge.finishForegroundRecording).not.toHaveBeenCalled();
+    },
+  );
+
+  it('输入框查询尚未返回时就能复制，迟到的状态事件不改变原输入目标', async () => {
+    const lookup = deferred();
+    useDesktopStore.getState().setRuntime({ mode: 'bubble' });
+    bridge.focusedBubbleInput.mockImplementation(async () => {
+      await lookup.promise;
+      return 'original';
+    });
+    bridge.transcribe.mockResolvedValue({ text: '原文' });
+    bridge.organize.mockResolvedValue({ text: '结果' });
+    const { result } = renderHook(() => useRecordingActions());
+    await act(() => result.current.toggleRecording());
+    let stopping!: Promise<void>;
+    await act(async () => {
+      stopping = result.current.toggleRecording();
+      await vi.waitFor(() =>
+        expect(useSessionStore.getState().status).toBe('idle'),
+      );
+    });
+    expect(useSessionStore.getState()).toMatchObject({
+      status: 'idle',
+      bubbleResult: '结果',
+    });
+    expect(bridge.pasteBubbleResult).not.toHaveBeenCalled();
+    await act(() => result.current.copyResult());
+    expect(bridge.copyText).toHaveBeenCalledExactlyOnceWith('结果');
+    useDesktopStore.getState().setRuntime({ mode: 'main' });
+    await act(async () => {
+      lookup.resolve();
+      await stopping;
+    });
+    expect(bridge.pasteBubbleResult).toHaveBeenCalledExactlyOnceWith(
+      '结果',
+      'original',
+    );
+    expect(useSessionStore.getState().bubbleResult).toBe('结果');
+  });
+
+  it('前台投递返回前窗口转到后台时保留全文', async () => {
+    bridge.transcribe.mockResolvedValue({ text: '原文' });
+    bridge.organize.mockResolvedValue({ text: '整理结果' });
+    bridge.finishForegroundRecording.mockImplementation(() => {
+      useDesktopStore.getState().setRuntime({ mode: 'bubble' });
+      return Promise.resolve('pasted');
+    });
+    await recordOnce();
+    expect(useSessionStore.getState().bubbleResult).toBe('整理结果');
+    expect(useUiStore.getState().notice?.message).not.toContain('粘贴');
+  });
+
+  it('开始下一次录音后，上一段迟到的焦点查询不能再粘贴或结束新录音', async () => {
+    const lookup = deferred();
+    useDesktopStore.getState().setRuntime({ mode: 'bubble' });
+    bridge.focusedBubbleInput.mockImplementationOnce(async () => {
+      await lookup.promise;
+      return 'original';
+    });
+    bridge.transcribe.mockResolvedValue({ text: '上一段' });
+    bridge.organize.mockResolvedValue({ text: '整理上一段' });
+    const { result } = renderHook(() => useRecordingActions());
+    await act(() => result.current.toggleRecording());
+    let stopping!: Promise<void>;
+    await act(async () => {
+      stopping = result.current.toggleRecording();
+      await vi.waitFor(() =>
+        expect(useSessionStore.getState().bubbleResult).toBe('整理上一段'),
+      );
+    });
+    await act(() => result.current.toggleRecording('next-editor'));
+    await act(async () => {
+      lookup.resolve();
+      await stopping;
+    });
+    expect(bridge.pasteBubbleResult).not.toHaveBeenCalled();
+    expect(useSessionStore.getState()).toMatchObject({
+      status: 'recording',
+      bubbleResult: '',
+    });
+    act(() => result.current.cancelTranscription());
   });
 
   it('采集确认之后才切到录音态，且麦克风先于后端会话启动', async () => {

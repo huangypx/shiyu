@@ -11,13 +11,12 @@
   animation: overlayIn 100ms ease-out both;
 }
 
-.overlay[data-direction='expand'] {
-  /* 展开阶段遮罩只负责挡住点击，悬浮球自己淡出；窗口先回到
-     记忆位置，等 state 事件到达后才铺满画布。 */
+.overlay[data-window-transition='expand'] {
+  /* 主窗口回到记忆位置后才需要画布遮罩。 */
   animation: none;
 }
 
-.overlay[data-direction='expand'][data-phase='settling'] {
+.overlay[data-window-transition='expand'][data-phase='settling'] {
   /* 原生窗口在 state 事件时已经跳到记忆位置，这块画布先盖住
      新窗口，再和主界面的入场一起淡出，避免透明窗口闪一帧。 */
   background: var(--app-canvas);
@@ -37,7 +36,8 @@
   left: auto;
   width: var(--droplet-width, 100%);
   height: var(--droplet-height, 100%);
-  border: calc(6px * var(--droplet-border, 0)) solid rgba(255, 255, 255, 0.94);
+  border: calc(6px * var(--droplet-border, 0)) solid
+    var(--droplet-stroke, rgba(255, 255, 255, 0.94));
   border-radius: var(--droplet-radius, 0);
   background: var(--app-canvas);
   box-shadow: 0 6px 16px rgb(15 15 17 / calc(0.28 * var(--droplet-shadow, 0)));
@@ -65,14 +65,19 @@
   bottom: var(--droplet-inset, 0);
 }
 
-/* 深色填充只在最后一段出现：前半程保持画布色，和主窗口淡出时
-   的底色一致；末端才变成悬浮球的石墨色。 */
+:global([data-palette='celadon']) .droplet,
+:global([data-palette='plum']) .droplet {
+  --droplet-stroke: var(--app-border);
+  --droplet-color: var(--app-mic-bg);
+}
+
+/* 动画前半段与主窗口的画布同色，落定时再显出悬浮按钮的颜色。 */
 .droplet::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--gray-12);
+  background: var(--droplet-color, var(--gray-12));
   opacity: var(--droplet-fill, 0);
 }
 

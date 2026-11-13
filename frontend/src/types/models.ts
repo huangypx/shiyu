@@ -1,6 +1,8 @@
 // 领域模型：后端返回的 JSON 与 UI 使用的形状在这里统一描述。
 // 与后端 DTO 的差异见 services/bridge.ts，那边负责搬运。
 
+import { hostPlatform } from '@/services/platform';
+
 export type ASRMode = 'transcriptions' | 'chat';
 
 // 桌面控制器上报的宿主系统；浏览器预览为 "web"。
@@ -65,8 +67,10 @@ export type ModelSettings = {
 
 export type DesktopSettings = {
   hotkey: string;
+  closeAction: 'ask' | 'background' | 'quit';
   autoPaste: boolean;
   startInBubble: boolean;
+  launchAtLogin: boolean;
   keepBubbleOnTop: boolean;
   showResultPreview: boolean;
   restoreClipboard: boolean;
@@ -76,6 +80,7 @@ export type DesktopSettings = {
 
 export type DesktopState = {
   mode: 'main' | 'bubble';
+  closeRequested: boolean;
   hotkey: string;
   hotkeyRegistered: boolean;
   hotkeyReason?: string;
@@ -141,6 +146,12 @@ export type Note = {
   metrics?: CallMetrics;
 };
 
+const listPolishInstructions =
+  '听出步骤、优先级、排序要求或“第一、第二”这样的编号时，用 1.、2. 编号。按给出的顺序或排序依据排列，缺少依据时保留口述顺序。' +
+  '并列列举的事项用「- 」分点。每项单独一行，普通叙述保留自然段。' +
+  '删去口头禅、重复表述和只用于引出条目的套话，保留事实、条件、数字和否定。' +
+  '纯清单直接从第一项开始，省去额外的标题、引言和总结。';
+
 // 内置预设与后端 defaultPolishPresets 保持同 ID、同名称、同提示词：
 // 浏览器预览靠它给出可编辑的起点，首次水合时后端返回的列表会覆盖它。
 export const DEFAULT_POLISH_PRESETS: PolishPreset[] = [
@@ -148,25 +159,29 @@ export const DEFAULT_POLISH_PRESETS: PolishPreset[] = [
     id: 'default',
     name: '默认整理',
     systemPrompt:
-      "You clean up dictated text. Preserve the speaker's meaning and language, fix punctuation and obvious transcription errors, remove filler words, and return only the polished text.",
+      '整理口述文本，保留原意与原文语言，修正标点和明显的转写错误。只输出整理后的正文。' +
+      listPolishInstructions,
   },
   {
     id: 'concise',
     name: '精简去重',
     systemPrompt:
-      '你负责精简口述文本。保留原意与说话人的语言（{{language}}），删除重复表述、口头禅和语气词，把语义重复的短句合并成一句，不要新增信息，不要改写成提纲或列表，只输出整理后的正文。',
+      '你负责精简口述文本。保留原意与说话人的语言（{{language}}），合并语义重复的短句，只输出整理后的正文。' +
+      listPolishInstructions,
   },
   {
     id: 'markdown',
     name: 'Markdown 结构',
     systemPrompt:
-      '你把口述内容整理成结构化 Markdown，语言为 {{language}}。按内容层级给出标题、要点列表和任务列表（- [ ] 待办），补全标点并删除口头禅，不添加原文没有的事实，只输出 Markdown 正文，不要用代码块包裹整体结果。',
+      '你把口述内容整理成结构化 Markdown，语言为 {{language}}。按内容层级给出标题、要点列表和任务列表（- [ ] 待办），补全标点并删除口头禅，不添加原文没有的事实，只输出 Markdown 正文，不要用代码块包裹整体结果。' +
+      listPolishInstructions,
   },
   {
     id: 'meeting',
     name: '会议纪要',
     systemPrompt:
-      '你把口述内容整理成会议纪要，语言为 {{language}}。在合适的段落列出时间、参与者、讨论重点与可执行待办（- [ ]），信息缺失时直接省略对应条目，不要编造，只输出纪要正文。',
+      '你把口述内容整理成会议纪要，语言为 {{language}}。在合适的段落列出时间、参与者、讨论重点与可执行待办（- [ ]），信息缺失时直接省略对应条目，不要编造，只输出纪要正文。' +
+      listPolishInstructions,
   },
 ];
 
@@ -180,7 +195,7 @@ export const DEFAULT_ASR_MODEL: AsrModelConfig = {
   provider: 'openai-compatible',
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
-  model: 'gpt-4o-mini-transcribe',
+  model: 'gpt-transcribe',
   mode: 'transcriptions',
   stream: false,
 };
@@ -208,9 +223,13 @@ export const DEFAULT_SETTINGS: ModelSettings = {
 };
 
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
-  hotkey: 'Ctrl+Shift+Space',
+  hotkey: ['darwin', 'linux'].includes(hostPlatform() ?? '')
+    ? 'Ctrl+Shift+Space'
+    : 'Right Alt',
+  closeAction: 'ask',
   autoPaste: true,
   startInBubble: false,
+  launchAtLogin: false,
   keepBubbleOnTop: true,
   showResultPreview: true,
   restoreClipboard: true,

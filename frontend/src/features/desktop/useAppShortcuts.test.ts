@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useDesktopStore } from '@/store/desktopStore';
 import { useUiStore } from '@/store/uiStore';
@@ -12,24 +12,24 @@ function pressMeta(key: string) {
 
 describe('useAppShortcuts', () => {
   beforeEach(() => {
-    localStorage.clear();
-    useUiStore.setState({ sidebarCollapsed: false, settingsOpen: false });
-    // 浏览器预览下快捷键整体跳过，测试里固定成桌面平台。
-    useDesktopStore.setState((state) => ({
-      runtime: { ...state.runtime, platform: 'darwin' },
-    }));
+    useUiStore.setState({ settingsOpen: false });
+    useDesktopStore
+      .getState()
+      .setRuntime({ platform: 'darwin', closeRequested: false });
   });
 
-  it('⌘\\ 在折叠与展开之间切换侧栏', () => {
-    renderHook(() => useAppShortcuts());
-    pressMeta('\\');
-    expect(useUiStore.getState().sidebarCollapsed).toBe(true);
-    pressMeta('\\');
-    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+  it('新建快捷键使用工具栏的操作', () => {
+    const newRecord = vi.fn();
+    renderHook(() => useAppShortcuts(newRecord));
+    pressMeta('n');
+    expect(newRecord).toHaveBeenCalledTimes(1);
+    useUiStore.getState().openSettings();
+    pressMeta('n');
+    expect(newRecord).toHaveBeenCalledTimes(1);
   });
 
-  it('⌘, 仍然打开偏好设置', () => {
-    renderHook(() => useAppShortcuts());
+  it('⌘, 打开偏好设置', () => {
+    renderHook(() => useAppShortcuts(vi.fn()));
     pressMeta(',');
     expect(useUiStore.getState().settingsOpen).toBe(true);
   });

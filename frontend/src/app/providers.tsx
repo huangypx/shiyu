@@ -1,11 +1,17 @@
 import { Theme } from '@radix-ui/themes';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
-import { useUiStore } from '@/store/uiStore';
+import { type Palette, useUiStore } from '@/store/uiStore';
+
+const themeColors = {
+  celadon: { accentColor: 'tomato', grayColor: 'sage' },
+  mono: { accentColor: 'indigo', grayColor: 'slate' },
+  plum: { accentColor: 'orange', grayColor: 'mauve' },
+} as const;
 
 // 外观偏好可以是「跟随系统」，但 Radix Theme 只接受
 // light / dark 两个值，因此在这里把系统偏好解析成具体值。
-function useResolvedAppearance() {
+function useResolvedAppearance(palette: Palette) {
   const preference = useUiStore((state) => state.appearance);
   const [systemPrefersDark, setSystemPrefersDark] = useState(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
@@ -28,17 +34,27 @@ function useResolvedAppearance() {
     };
   }, []);
 
+  if (palette === 'celadon') return 'light';
+  if (palette === 'plum') return 'dark';
   if (preference === 'system') return systemPrefersDark ? 'dark' : 'light';
   return preference;
 }
 
 export function AppTheme({ children }: { children: React.ReactNode }) {
-  const appearance = useResolvedAppearance();
+  const palette = useUiStore((state) => state.palette);
+  const appearance = useResolvedAppearance(palette);
+  // Radix 弹层挂在 body 下，需要从根元素获取和主窗口相同的配色。
+  useLayoutEffect(() => {
+    document.documentElement.dataset.palette = palette;
+    return () => {
+      delete document.documentElement.dataset.palette;
+    };
+  }, [palette]);
   return (
     <Theme
+      data-palette={palette}
       appearance={appearance}
-      accentColor="indigo"
-      grayColor="slate"
+      {...themeColors[palette]}
       radius="large"
       scaling="90%"
       panelBackground="solid"

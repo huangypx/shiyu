@@ -1,6 +1,8 @@
 import { Events } from '@wailsio/runtime';
 
+import { hostPlatform } from '@/services/platform';
 import {
+  activeAsrModel,
   type AsrModelConfig,
   type Backdrop,
   type CallRecord,
@@ -86,13 +88,19 @@ type BackendHistoryEntry = {
   calls?: CallRecord[];
 };
 
-// 浏览器预览没有 Wails 运行时；用窗口上是否存在 _wails 区分
-// 桌面与纯前端，避免在普通 Vite 页面里调用生成绑定。
-type WailsWindow = Window & { _wails?: unknown };
+type NativeWebView = Window & {
+  chrome?: { webview?: { postMessage?: unknown } };
+  webkit?: { messageHandlers?: { external?: { postMessage?: unknown } } };
+};
 
 function isDesktop() {
+  if (typeof window === 'undefined') return false;
+  // 浏览器里的运行时也会创建 _wails。桌面首次加载时，原生消息通道先于平台信息就绪。
+  const host = window as NativeWebView;
   return (
-    typeof window !== 'undefined' && Boolean((window as WailsWindow)._wails)
+    hostPlatform() !== undefined ||
+    typeof host.chrome?.webview?.postMessage === 'function' ||
+    typeof host.webkit?.messageHandlers?.external?.postMessage === 'function'
   );
 }
 
@@ -108,7 +116,7 @@ export function startRecording(settings: ModelSettings) {
     BackendApp.StartRecording(
       'recording.wav',
       'audio/wav',
-      settings.language,
+      activeAsrModel(settings).language || settings.language,
       '',
     ),
   );
@@ -178,12 +186,13 @@ export async function transcribe(
 ): Promise<CallOutcome | undefined> {
   if (!isDesktop()) return undefined;
   const decoded = decodeDataURL(audio);
+  const model = activeAsrModel(settings);
   const request: AudioRequest = {
     data: decoded.data,
     mimeType: decoded.mimeType,
     filename: audioFilename(decoded.mimeType),
-    language: settings.language,
-    modelId: settings.activeAsrId,
+    language: model.language || settings.language,
+    modelId: model.id,
   };
   return toOutcome(
     await raceWithAbort(BackendApp.TranscribeAudio(request), signal),
@@ -207,6 +216,17 @@ export function subscribeAsrPartial(callback: (text: string) => void) {
     const text = (data as { text?: unknown }).text;
     if (typeof text === 'string') callback(text);
   });
+}
+
+// setTranscribing 同步录音状态，供右键菜单和全局快捷键判断能否取消或结束录音。
+export function setTranscribing(active: boolean) {
+  return desktopOnly(() => Controller.SetTranscribing(active));
+}
+
+// subscribeDesktopCancelTranscription 接收浮动球右键菜单的取消动作。
+export function subscribeDesktopCancelTranscription(callback: () => void) {
+  if (!isDesktop()) return () => undefined;
+  return Events.On('desktop:cancel-transcribe', () => callback());
 }
 
 // setReduceMotion 把系统的「减少动态效果」同步给原生窗口动画。
@@ -375,8 +395,8 @@ export async function loadDesktopSettings() {
 
 export function saveDesktopSettings(settings: DesktopSettings) {
   return desktopOnly(() =>
-    BackendApp.SaveDesktopConfig(
-      settings as unknown as Parameters<typeof BackendApp.SaveDesktopConfig>[0],
+    Controller.SaveDesktopConfig(
+      settings as unknown as Parameters<typeof Controller.SaveDesktopConfig>[0],
     ),
   );
 }
@@ -512,6 +532,7 @@ export async function loadDesktopState(): Promise<DesktopState | undefined> {
   const state = await Controller.GetState();
   return {
     mode: state.mode as DesktopState['mode'],
+    closeRequested: state.closeRequested,
     hotkey: state.hotkey,
     hotkeyRegistered: state.hotkeyRegistered,
     hotkeyReason: state.hotkeyReason,
@@ -536,8 +557,19 @@ export function hideWindow() {
   return desktopOnly(() => Controller.HideWindow());
 }
 
-export function quitApp() {
-  return desktopOnly(() => Controller.Quit());
+export function requestWindowClose() {
+  return desktopOnly(() => Controller.RequestClose());
+}
+
+export function resolveWindowClose(
+  action: 'background' | 'quit' | 'cancel',
+  remember: boolean,
+) {
+  return desktopOnly(() => Controller.ResolveClose(action, remember));
+}
+
+export function setBubbleActivity(visible: boolean) {
+  return desktopOnly(() => Controller.SetBubbleActivity(visible));
 }
 
 export function toggleDesktopMode() {
@@ -546,6 +578,34 @@ export function toggleDesktopMode() {
 
 export function saveBubblePosition() {
   return desktopOnly(() => Controller.SaveBubblePosition());
+}
+
+export async function resizeBubble(width: number, height: number) {
+  if (isDesktop()) await Controller.ResizeBubble(width, height);
+}
+
+export async function focusedBubbleInput() {
+  return isDesktop() ? Controller.FocusedBubbleInput() : '';
+}
+
+export async function pasteBubbleResult(text: string, target: string) {
+  return isDesktop() && Controller.PasteBubbleResult(text, target);
+}
+
+export async function finishForegroundRecording(
+  text: string,
+  autoPaste: boolean,
+) {
+  if (isDesktop()) {
+    if (!(await Controller.FinishForegroundRecording(text, autoPaste)))
+      return 'bubble';
+    return autoPaste ? 'pasted' : 'ready';
+  }
+  if (autoPaste) {
+    await pasteText(text);
+    return 'copied';
+  }
+  return 'ready';
 }
 
 export function openSettingsWindow() {
@@ -596,9 +656,29 @@ export function configureHotkey(hotkey: string) {
   return desktopOnly(() => Controller.ConfigureHotkey(hotkey));
 }
 
-export function subscribeDesktopHotkey(callback: () => void) {
+export function subscribeDesktopHotkey(
+  callback: (mode: DesktopState['mode'], target: string) => void,
+) {
   if (!isDesktop()) return () => undefined;
-  return Events.On('desktop:hotkey', () => callback());
+  let live = true;
+  let pending = Promise.resolve();
+  const drain = () => {
+    pending = pending
+      .then(async () => {
+        if (!live) return;
+        const keys = await Controller.TakeRecordingHotkeys();
+        for (const { mode, target } of keys ?? []) {
+          if (mode === 'main' || mode === 'bubble') callback(mode, target);
+        }
+      })
+      .catch(() => undefined);
+  };
+  const unsubscribe = Events.On('desktop:hotkey', drain);
+  drain();
+  return () => {
+    live = false;
+    unsubscribe();
+  };
 }
 
 export function subscribeDesktopSettings(callback: () => void) {

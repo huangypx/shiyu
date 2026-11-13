@@ -1,57 +1,41 @@
 .markdown {
-  display: grid;
-  gap: 3px;
-  padding: 14px 16px;
-  color: var(--app-ink);
-  font-size: 13px;
-  line-height: 1.75;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
-.markdown h3 {
-  margin: 6px 0 2px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.markdown h4 {
-  margin: 6px 0 2px;
-  color: var(--app-ink-soft);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
+.markdown h3,
+.markdown h4,
 .markdown p {
   margin: 0;
 }
+.markdown h3,
+.markdown h4 {
+  font-size: 1em;
+  font-weight: 600;
+}
+.markdown h3:not(:first-child),
+.markdown h4:not(:first-child) {
+  margin-top: 0.55em;
+}
 
-.checkLine {
+.checkLine,
+.bulletLine {
   display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  gap: 0.45em;
+  align-items: baseline;
 }
 
 .checkBox {
   flex: none;
-  width: 12px;
-  height: 12px;
-  margin-top: 5px;
+  width: 0.65em;
+  height: 0.65em;
   border: 1px solid var(--app-border-strong);
   border-radius: 3px;
 }
 
-.bulletLine {
-  display: flex;
-  gap: 8px;
-}
-
 .bulletLine span {
-  color: var(--app-ink-faint);
-}
-
-.metaLine {
   color: var(--app-ink-soft);
 }
-
 .lineSpace {
-  height: 4px;
+  height: 0.5em;
 }

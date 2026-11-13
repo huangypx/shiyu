@@ -51,19 +51,14 @@ body {
   }
 }
 
-/* 窗口标题只有一条 36px 顶带：macOS 把原生交通灯排在它里面，
-   Windows/Linux 把 HTML 窗口按钮排在它右端，三种平台的正文都从
-   同一条基线开始，不再有第二条 caption。 */
 :root {
-  /* 原生交通灯的中心在距窗口顶部 16px；36px 顶带把内容中心放在 18px，
-     两者只差 2px，视觉上就是同一条线，又不会让按钮贴住内容。 */
-  --app-header-height: 36px;
-  /* 交通灯排在 x = 9–69，78 是留 9px 呼吸后的内容起点；
-     其余平台没有交通灯，这个变量保持 0。 */
+  --app-header-height: clamp(42px, 4.3vw, 66px);
   --app-titlebar-inset: 0px;
 }
 
 :root[data-platform='darwin'] {
+  /* 原生交通灯固定在窗口左上角，标题文字留在同一行。 */
+  --app-header-height: 36px;
   --app-titlebar-inset: 78px;
 }
 
@@ -78,8 +73,7 @@ button {
   *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    /* 延时也要清掉：侧栏折叠和顶带让位都靠 delay 串顺序，
-       只清时长会留下「先隐身后等待」的空档。 */
+    /* 同时压缩延时，避免窗口内容在动画结束后继续等待。 */
     animation-delay: 0.001ms !important;
     transition-duration: 0.001ms !important;
     transition-delay: 0.001ms !important;

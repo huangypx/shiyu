@@ -1,0 +1,31 @@
+.waveform {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 19px;
+  color: var(--app-ink-soft);
+}
+
+.waveform i {
+  width: 2px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleY(0.14);
+}
+
+.waveform[data-active] i {
+  transform: scaleY(
+    calc(0.14 + var(--mic-level, 0) * var(--bar-weight) * 0.86)
+  );
+  transition: transform 80ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waveform[data-active] i {
+    transform: scaleY(
+      calc(0.14 + var(--mic-level, 0) * var(--bar-weight) * 0.5)
+    );
+    transition: none;
+  }
+}

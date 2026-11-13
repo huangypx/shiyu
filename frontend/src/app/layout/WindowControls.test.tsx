@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   isWindowMaximised,
   minimiseWindow,
-  quitApp,
+  requestWindowClose,
   toggleMaximiseWindow,
 } from '@/services/bridge';
 
@@ -14,7 +14,7 @@ import WindowControls from './WindowControls';
 vi.mock('@/services/bridge', () => ({
   isWindowMaximised: vi.fn(() => Promise.resolve(false)),
   minimiseWindow: vi.fn(() => Promise.resolve()),
-  quitApp: vi.fn(() => Promise.resolve()),
+  requestWindowClose: vi.fn(() => Promise.resolve()),
   toggleMaximiseWindow: vi.fn(() => Promise.resolve()),
 }));
 
@@ -29,7 +29,7 @@ describe('WindowControls', () => {
     expect(screen.getByRole('button', { name: '最小化' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '最大化' })).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: '关闭拾语' }),
+      screen.getByRole('button', { name: '关闭窗口' }),
     ).toBeInTheDocument();
   });
 
@@ -57,8 +57,8 @@ describe('WindowControls', () => {
     await user.click(screen.getByRole('button', { name: '最大化' }));
     expect(toggleMaximiseWindow).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: '关闭拾语' }));
-    expect(quitApp).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: '关闭窗口' }));
+    expect(requestWindowClose).toHaveBeenCalledTimes(1);
   });
 
   it('窗口已最大化时按钮切成还原', async () => {

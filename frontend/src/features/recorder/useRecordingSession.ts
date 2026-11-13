@@ -10,9 +10,11 @@ import {
   blobToDataUrl,
   cancelTranscriptionRequest,
   copyText,
+  finishForegroundRecording,
+  focusedBubbleInput,
   loadCalls,
   organize,
-  pasteText,
+  pasteBubbleResult,
   startRecording,
   stopRecording,
   subscribeAsrPartial,
@@ -24,12 +26,20 @@ import {
   startWavRecording,
   type WavRecorder,
 } from '@/services/recorder';
+import { useDesktopStore } from '@/store/desktopStore';
 import { useSessionStore } from '@/store/sessionStore';
+import { useUiStore } from '@/store/uiStore';
 import type { CallMetrics, CallRecord } from '@/types/models';
 
 // 录音器实例跨组件共享：全局快捷键可能在 App 层触发录音，
 // 停止按钮却在页面组件里，放在组件 ref 里会丢实例。
 let activeRecorder: WavRecorder | null = null;
+// 在开始录音时记住输入目标，避免整理期间切换窗口后把文字送给另一个应用。
+let recordingTarget: Promise<string> | undefined;
+
+function inBubble() {
+  return useDesktopStore.getState().runtime.mode === 'bubble';
+}
 // 每次开始录音换一个代号：麦克风权限弹窗可能停留很久，
 // 迟到的启动结果要靠它认出「用户已经取消」。
 let startToken = 0;
@@ -94,18 +104,43 @@ export function useRecordingActions() {
   );
 
   const deliverResult = useCallback(
-    async (result: string) => {
-      if (!desktop.autoPaste) {
-        feedback('已完成转写和整理');
+    async (result: string, token: number, originalTarget?: Promise<string>) => {
+      if (originalTarget || inBubble()) {
+        // 整理已经完成。胶囊先提供全文，查找输入框或粘贴的耗时不应占用录音入口。
+        useSessionStore.setState({
+          bubbleResult: result,
+          status: 'idle',
+          stage: null,
+        });
+        if (!desktop.autoPaste || !originalTarget) return;
+        const target = await originalTarget;
+        guardProcessing(token);
+        if (target) {
+          try {
+            // 原生侧会复核当前模式和焦点，较晚到达的窗口事件不会改变录音的目标。
+            await pasteBubbleResult(result, target);
+          } catch (error) {
+            guardProcessing(token);
+            feedback(`粘贴失败：${describeError(error)}`, 'error');
+          }
+        }
         return;
       }
       try {
-        const injected = await pasteText(result);
-        feedback(
-          injected ? '已整理并粘贴到当前光标' : '已整理，结果已复制到剪贴板',
+        const outcome = await finishForegroundRecording(
+          result,
+          desktop.autoPaste,
         );
+        guardProcessing(token);
+        if (outcome === 'bubble' || inBubble())
+          useSessionStore.getState().setBubbleResult(result);
+        else if (outcome === 'pasted') feedback('已整理并粘贴到当前光标');
+        else if (outcome === 'copied') feedback('已整理，结果已复制到剪贴板');
+        else feedback('已完成转写和整理');
       } catch {
-        feedback('已整理，自动粘贴失败，结果仍在剪贴板中');
+        guardProcessing(token);
+        if (inBubble()) useSessionStore.getState().setBubbleResult(result);
+        else feedback('已整理，自动粘贴失败，结果仍在剪贴板中');
       }
     },
     [desktop.autoPaste, feedback],
@@ -130,6 +165,8 @@ export function useRecordingActions() {
   const finishRecording = useCallback(
     async (blob?: Blob) => {
       const session = useSessionStore.getState();
+      const target = recordingTarget;
+      recordingTarget = undefined;
       session.setStatus('processing');
       // 先记下正在转写：界面据此说「正在识别」，
       // 整理阶段再换成「正在整理」。
@@ -159,6 +196,7 @@ export function useRecordingActions() {
           session.setMetrics(MOCK_METRICS);
           session.setTranscript(MOCK_TRANSCRIPT);
           session.setOrganized(desktop.showResultPreview ? MOCK_ORGANIZED : '');
+          if (target || inBubble()) session.setBubbleResult(MOCK_ORGANIZED);
           saveNote(MOCK_TRANSCRIPT, MOCK_ORGANIZED, MOCK_METRICS);
           return;
         }
@@ -182,13 +220,14 @@ export function useRecordingActions() {
           llmCall = organizedOutcome?.call;
           result = organizedOutcome?.text?.trim() || text;
         } catch (error) {
+          guardProcessing(token);
           feedback(`整理失败：${describeError(error)}`, 'error');
         }
         const record: CallMetrics = { asr: asrCall, llm: llmCall };
         session.setMetrics(record);
         session.setOrganized(desktop.showResultPreview ? result : '');
         saveNote(text, result, record);
-        await deliverResult(result);
+        await deliverResult(result, token, target);
       } catch (error) {
         // 用户主动取消不是失败：既不该弹提示，也不该写历史。
         // 被取消的请求通常以连接中断收尾，因此代号对不上也要静默。
@@ -222,7 +261,8 @@ export function useRecordingActions() {
   const concludeRecording = useCallback(
     async (recorder: WavRecorder | null) => {
       const session = useSessionStore.getState();
-      session.setStatus('idle');
+      const token = processingToken;
+      session.setStatus('processing');
       let blob: Blob | undefined;
       if (recorder) {
         try {
@@ -231,93 +271,102 @@ export function useRecordingActions() {
           blob = undefined;
         }
       }
-      await finishRecording(blob);
+      if (token === processingToken) await finishRecording(blob);
     },
     [finishRecording],
   );
 
-  const toggleRecording = useCallback(async () => {
-    const session = useSessionStore.getState();
-    if (session.status === 'processing') return;
-    if (session.status === 'recording') {
-      const recorder = activeRecorder;
-      activeRecorder = null;
-      await concludeRecording(recorder);
-      return;
-    }
-    if (session.status === 'arming') {
-      // 还在等麦克风时再按一次就是取消：迟到的启动结果由
-      // startToken 丢弃，已经拿到的采集器在这里就关掉。
-      startToken += 1;
-      const pending = armingRecorder;
-      armingRecorder = null;
-      pending?.cancel();
-      session.setStatus('idle');
-      feedback('已取消');
-      return;
-    }
-    session.resetDraft();
-    // 新一次录音开始，上一次处理即便还没收尾也已经作废。
-    processingToken += 1;
-    session.setStatus('arming');
-    const token = (startToken += 1);
-    let recorder: WavRecorder | null = null;
-    try {
-      recorder = await startWavRecording({
-        // 录音中被拔掉或撤权限：按正常结束收尾，已经说出口的部分
-        // 仍然会送去转写。
-        onEnded: () => {
-          startToken += 1;
-          if (!recorder) return;
-          const current = useSessionStore.getState();
-          if (current.status === 'arming') {
-            // 还没切到录音态设备就断了：同样要退出「开启中」，
-            // 否则按钮会一直停在等待麦克风的样子。
-            if (armingRecorder === recorder) armingRecorder = null;
-            recorder.cancel();
-            current.setStatus('idle');
+  const toggleRecording = useCallback(
+    async (hotkeyTarget?: string) => {
+      const session = useSessionStore.getState();
+      if (session.status === 'processing') return;
+      if (session.status === 'recording') {
+        const recorder = activeRecorder;
+        activeRecorder = null;
+        await concludeRecording(recorder);
+        return;
+      }
+      if (session.status === 'arming') {
+        // 还在等麦克风时再按一次就是取消：迟到的启动结果由
+        // startToken 丢弃，已经拿到的采集器在这里就关掉。
+        startToken += 1;
+        const pending = armingRecorder;
+        armingRecorder = null;
+        pending?.cancel();
+        session.setStatus('idle');
+        feedback('已取消');
+        return;
+      }
+      session.resetDraft();
+      if (inBubble()) useUiStore.getState().dismissNotice();
+      recordingTarget = inBubble()
+        ? hotkeyTarget === undefined
+          ? focusedBubbleInput().catch(() => '')
+          : Promise.resolve(hotkeyTarget)
+        : undefined;
+      // 新一次录音开始，上一次处理即便还没收尾也已经作废。
+      processingToken += 1;
+      session.setStatus('arming');
+      const token = (startToken += 1);
+      let recorder: WavRecorder | null = null;
+      try {
+        recorder = await startWavRecording({
+          // 录音中被拔掉或撤权限：按正常结束收尾，已经说出口的部分
+          // 仍然会送去转写。
+          onEnded: () => {
+            startToken += 1;
+            if (!recorder) return;
+            const current = useSessionStore.getState();
+            if (current.status === 'arming') {
+              // 还没切到录音态设备就断了：同样要退出「开启中」，
+              // 否则按钮会一直停在等待麦克风的样子。
+              if (armingRecorder === recorder) armingRecorder = null;
+              recorder.cancel();
+              current.setStatus('idle');
+              feedback('麦克风已断开', 'error');
+              return;
+            }
+            if (activeRecorder !== recorder) return;
+            activeRecorder = null;
+            if (current.status !== 'recording') return;
             feedback('麦克风已断开', 'error');
-            return;
-          }
-          if (activeRecorder !== recorder) return;
-          activeRecorder = null;
-          if (current.status !== 'recording') return;
-          feedback('麦克风已断开', 'error');
-          void concludeRecording(recorder);
-        },
-      });
-      // 采集器一存在就登记：等 ready 的这段时间用户可能已经取消。
-      armingRecorder = recorder;
+            void concludeRecording(recorder);
+          },
+        });
+        // 采集器一存在就登记：等 ready 的这段时间用户可能已经取消。
+        armingRecorder = recorder;
+        if (token !== startToken) {
+          recorder.cancel();
+          return;
+        }
+        // 先确认采集真的在跑，再把界面切成录音态：状态诚实时，
+        // 用户看到的红色方块就是「现在说话会被录进去」。
+        await recorder.ready;
+      } catch (error) {
+        recorder?.cancel();
+        if (token !== startToken) return;
+        session.setStatus('idle');
+        feedback(`无法使用麦克风：${describeMicError(error)}`, 'error');
+        return;
+      } finally {
+        // 无论成功、失败还是被取消，离开这段流程前都清掉登记，
+        // 避免取消分支拿到一个已经收尾的采集器。
+        if (armingRecorder === recorder) armingRecorder = null;
+      }
       if (token !== startToken) {
         recorder.cancel();
         return;
       }
-      // 先确认采集真的在跑，再把界面切成录音态：状态诚实时，
-      // 用户看到的红色方块就是「现在说话会被录进去」。
-      await recorder.ready;
-    } catch (error) {
-      recorder?.cancel();
-      if (token !== startToken) return;
-      session.setStatus('idle');
-      feedback(`无法使用麦克风：${describeMicError(error)}`, 'error');
-      return;
-    } finally {
-      // 无论成功、失败还是被取消，离开这段流程前都清掉登记，
-      // 避免取消分支拿到一个已经收尾的采集器。
-      if (armingRecorder === recorder) armingRecorder = null;
-    }
-    if (token !== startToken) {
-      recorder.cancel();
-      return;
-    }
-    activeRecorder = recorder;
-    session.setStatus('recording');
-    feedback('正在聆听…');
-    // 后端的内存会话只是记账，采集已经跑起来了，
-    // 不能让它的一次往返把第一句话挡在门外。浏览器预览没有绑定，
-    // 这里本来就可能是 undefined。
-    void startRecording(settings)?.catch(() => undefined);
-  }, [concludeRecording, feedback, settings]);
+      activeRecorder = recorder;
+      session.setStatus('recording');
+      if (!inBubble()) feedback('正在聆听…');
+      // 后端的内存会话只是记账，采集已经跑起来了，
+      // 不能让它的一次往返把第一句话挡在门外。浏览器预览没有绑定，
+      // 这里本来就可能是 undefined。
+      void startRecording(settings)?.catch(() => undefined);
+    },
+    [concludeRecording, feedback, settings],
+  );
 
   const runOrganize = useCallback(async () => {
     const session = useSessionStore.getState();
@@ -347,7 +396,7 @@ export function useRecordingActions() {
       session.setMetrics(nextMetrics);
       session.setOrganized(desktop.showResultPreview ? result : '');
       saveNote(session.transcript, result, nextMetrics);
-      await deliverResult(result);
+      await deliverResult(result, token);
     } catch (error) {
       if (error instanceof TransferCancelled || token !== processingToken)
         return;
@@ -407,12 +456,19 @@ export function useRecordingActions() {
   }, []);
 
   const copyResult = useCallback(async () => {
-    const { organized: current } = useSessionStore.getState();
+    const { organized, bubbleResult } = useSessionStore.getState();
+    const fromBubble = inBubble();
+    const current = fromBubble ? bubbleResult : organized;
     if (!current) return;
-    await copyText(current);
+    try {
+      await copyText(current);
+    } catch (error) {
+      feedback(`复制失败：${describeError(error)}`, 'error');
+      return;
+    }
     setCopied(true);
-    feedback('已复制到剪贴板');
-    window.setTimeout(() => useSessionStore.getState().setCopied(false), 1600);
+    if (!fromBubble) feedback('已复制到剪贴板');
+    window.setTimeout(() => setCopied(false), 1600);
   }, [feedback, setCopied]);
 
   const clearDraft = useCallback(() => {
@@ -443,44 +499,24 @@ export function useRecordingActions() {
 // 页面同时需要状态与动作；这里只订阅它自己要渲染的字段。
 export function useRecordingSession() {
   const actions = useRecordingActions();
-  const language = useSettingsStore((state) => state.models.language);
   const presets = useSettingsStore((state) => state.models.presets);
   const activePresetId = useSettingsStore(
     (state) => state.models.activePresetId,
   );
   const status = useSessionStore((state) => state.status);
-  const stage = useSessionStore((state) => state.stage);
   const transcript = useSessionStore((state) => state.transcript);
   const organized = useSessionStore((state) => state.organized);
-  const metrics = useSessionStore((state) => state.metrics);
-  const elapsedMs = useSessionStore((state) => state.elapsedMs);
   const copied = useSessionStore((state) => state.copied);
   const setTranscript = useSessionStore((state) => state.setTranscript);
-  const setOrganized = useSessionStore((state) => state.setOrganized);
-  const setMetrics = useSessionStore((state) => state.setMetrics);
 
   return {
-    language,
     presets,
     activePresetId,
     status,
-    // 开启麦克风与真正录音分开暴露：界面必须等采集确认后才
-    // 显示「正在录音」。
-    isArming: status === 'arming',
-    isRecording: status === 'recording',
-    isProcessing: status === 'processing',
-    stage,
-    // 转写结束后原文已可见，剩下的等待都在整理模型上；
-    // 界面要靠这个区分「正在识别」与「正在整理」。
-    isOrganizing: status === 'processing' && stage === 'organize',
     transcript,
     organized,
-    metrics,
-    elapsedMs,
     copied,
     setTranscript,
-    setOrganized,
-    setMetrics,
     ...actions,
   };
 }

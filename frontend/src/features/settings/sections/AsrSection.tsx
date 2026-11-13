@@ -2,7 +2,12 @@ import { Button, Select, TextField } from '@radix-ui/themes';
 import { Copy, Plus, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { ASRMode, AsrModelConfig, ModelSettings } from '@/types/models';
+import {
+  type ASRMode,
+  type AsrModelConfig,
+  DEFAULT_ASR_MODEL,
+  type ModelSettings,
+} from '@/types/models';
 
 import {
   MAX_MODELS,
@@ -116,7 +121,7 @@ export default function AsrSection({ settings, onChange }: Props) {
               <TextField.Root
                 value={selected.model}
                 onChange={(event) => update({ model: event.target.value })}
-                placeholder="whisper-1"
+                placeholder={DEFAULT_ASR_MODEL.model}
                 aria-label="ASR 模型 ID"
               />
             </div>

@@ -1,267 +1,164 @@
-/* 浮动窗口是 92x126 的透明方形：顶部 92x92 是唯一可见的圆形
-   按钮，同时充当窗口拖拽手柄；底部 34px 预留给悬停时出现的
-   工具栏。窗口固定加高，悬停不再改原生窗口尺寸。 */
+.viewport,
+.viewport body {
+  /* 胶囊先展开，原生窗口随后调整尺寸。此时显示页面滚动条会挤占波形的空间。 */
+  overflow: hidden;
+}
+
 .shell {
-  position: relative;
-  width: 92px;
-  height: 126px;
-  overflow: visible;
+  --bubble-surface: #28292d;
+  --bubble-ink: #fafafa;
+  --bubble-border: rgb(255 255 255 / 22%);
+  --bubble-hover: rgb(255 255 255 / 10%);
+  --bubble-stop: #ff8585;
+  --bubble-alert: #ffb8ad;
+  width: max-content;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 6px;
+  display: grid;
+  place-items: center;
   background: transparent;
-  /* 音量写在外壳上：球体与音晕共用一个 --mic-level，
-     两者各自读取，互不叠加缩放。 */
   --mic-level: 0;
-  /* 原生窗口拖拽：指针离开这个窗口后，系统拖拽循环仍在跟踪。
-     代价是拖拽区会吞掉 click，组件改用 mouseup 判断轻点。
-     轻点的双击保护窗口和右键菜单会话期间，组件会临时把它改成
-     no-drag，避免菜单关闭时残留的按压把窗口拖到指针处。 */
-  --wails-draggable: drag;
+  --wails-draggable: no-drag;
 }
 
-.shell[data-leaving='true'] {
-  opacity: 0;
-  /* 缩放围绕球心而不是 126px 窗口的中心，球才不会在淡出时漂移。 */
-  transform: scale(0.86);
-  transform-origin: 50% 46px;
-  pointer-events: none;
-  transition:
-    opacity 120ms ease-out,
-    transform 120ms ease-out;
+:global([data-palette='celadon']) .shell,
+:global([data-palette='plum']) .shell {
+  --bubble-surface: var(--app-surface);
+  --bubble-ink: var(--app-ink);
+  --bubble-border: var(--app-border-strong);
+  --bubble-hover: var(--app-surface-hover);
+  --bubble-stop: var(--app-accent-strong);
+  --bubble-alert: var(--app-danger);
+  --bubble-control-ink: var(--app-accent-strong);
+  --bubble-button-bg: var(--app-mic-bg);
+  --bubble-button-hover: var(--app-mic-hover);
+  --bubble-button-ink: var(--app-mic-ink);
+  --bubble-wave-bg: var(--app-canvas);
 }
 
-/* 球占据窗口顶部 92x92；工具栏条在它下面，不能跟着球一起缩放。 */
-.ball {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 92px;
-  height: 92px;
-}
-
-.button {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 72px;
-  height: 72px;
-  border: 6px solid rgba(255, 255, 255, 0.94);
-  border-radius: 50%;
-  background: var(--gray-12);
-  color: var(--gray-1);
-  cursor: grab;
-  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
-  /* 90ms 的插值把 23Hz 的采样接成连续动画；72px 的球最多
-     放大到约 81px，加上 6px 边框仍在 92px 的球区内。 */
-  transition:
-    transform 90ms ease-out,
-    background-color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-/* 应用失焦时 WebKit 不更新 :hover；原生悬停桥写入 data-hover 后
-   球也要有同样的视觉反馈。 */
-.button:hover,
-.shell[data-hover='true'] .button {
-  box-shadow: 0 8px 20px rgba(15, 15, 17, 0.32);
-  filter: brightness(1.08);
-}
-
-.button:active {
-  cursor: grabbing;
-  filter: brightness(0.94);
-}
-
-.recording {
-  background: var(--red-9);
-  color: #fff;
-  transform: scale(calc(1 + var(--mic-level) * 0.14));
-}
-
-/* 音量环是按钮的兄弟节点：它按音量加深并轻微外扩，不叠加按钮
-   自身的缩放。92px 的球区放不下更大的装饰，所以主要靠对比度
-   表达音量，而不是无限放大或发光。 */
-.levelHalo {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 86px;
-  height: 86px;
-  margin: -43px 0 0 -43px;
-  border: 2px solid var(--red-a8);
-  border-radius: 50%;
-  opacity: calc(0.14 + var(--mic-level) * 0.8);
-  transform: scale(calc(0.96 + var(--mic-level) * 0.06));
-  transition:
-    transform 120ms ease-out,
-    opacity 120ms ease-out;
-  pointer-events: none;
-}
-
-.arming {
-  /* 呼吸环同样由兄弟节点绘制，按钮本身保持原尺寸。 */
-  cursor: progress;
-}
-
-.armingRing {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 84px;
-  height: 84px;
-  margin: -42px 0 0 -42px;
-  border: 2px solid var(--gray-11);
-  border-radius: 50%;
-  pointer-events: none;
-  animation: armingPulse 1.4s ease-out infinite;
-}
-
-.processing {
-  cursor: progress;
-}
-
-.flashSuccess {
-  animation: flashSuccess 1.1s ease-out;
-}
-
-.flashError {
-  animation: flashError 1.4s ease-out;
-}
-
-/* 悬停工具栏：球下方的三个图标。容器始终接收指针并退出拖拽区，
-   避免在透明条里按下时把窗口拖走。 */
-.toolbar {
-  position: absolute;
-  top: 92px;
-  left: 0;
+.surface {
   display: flex;
+  align-items: center;
+  max-width: 364px;
+  min-height: 44px;
+  border: 1px solid var(--bubble-border);
+  border-radius: 22px;
+  color: var(--bubble-ink);
+  background: var(--bubble-surface);
+  box-shadow: 0 2px 5px rgb(0 0 0 / 24%);
+  overflow: hidden;
+}
+
+.control,
+.copy {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 92px;
-  height: 34px;
-  --wails-draggable: no-drag;
-  pointer-events: auto;
-}
-
-.toolbarPill {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-  padding: 2px;
-  border: 2px solid rgba(255, 255, 255, 0.94);
-  border-radius: var(--app-radius-pill);
-  background: var(--gray-12);
-  color: var(--gray-1);
-  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition:
-    opacity 140ms ease-out,
-    transform 140ms ease-out,
-    visibility 0s linear 140ms;
-}
-
-/* 三种触发方式共用一套显隐：鼠标悬停、键盘聚焦、macOS 原生
-   悬停桥写入的 data-hover。 */
-.shell:hover .toolbarPill,
-.shell:focus-within .toolbarPill,
-.shell[data-hover='true'] .toolbarPill {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transform: none;
-  transition-delay: 0s;
-}
-
-.toolbarButton {
-  display: grid;
   flex: none;
-  place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 42px;
+  height: 42px;
   padding: 0;
+  color: var(--bubble-control-ink, inherit);
+  background: transparent;
   border: 0;
   border-radius: 50%;
-  background: transparent;
-  color: inherit;
   cursor: pointer;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
 }
 
-/* 悬停或键盘聚焦时把胶囊的配色反转到按钮上：深色主题是黑底白
-   图标，浅色主题是白底黑图标。data-hovered 由原生指针桥写入，
-   应用失焦时也有效；这样指针落在哪一个动作上一眼可见。 */
-.toolbarButton:hover,
-.toolbarButton[data-hovered='true'],
-.toolbarButton:focus-visible {
-  background: var(--gray-1);
-  color: var(--gray-12);
+.shell[data-draggable] .control {
+  --wails-draggable: drag;
+  cursor: grab;
 }
 
-.toolbarButton:focus-visible {
-  outline: 2px solid var(--indigo-8);
-  outline-offset: 1px;
+.control:focus-visible,
+.copy:focus-visible {
+  outline-color: currentColor;
+  outline-offset: -3px;
 }
 
-/* 呼吸环始终留有一部分不透明度：截图、开会分屏或用户只是
-   扫一眼的时候，也要能看出「麦克风还在准备」。 */
-@keyframes armingPulse {
-  0% {
-    opacity: 0.9;
-    transform: scale(1);
-  }
-  70% {
-    opacity: 0.25;
-    transform: scale(1.05);
-  }
-  100% {
-    opacity: 0.9;
-    transform: scale(1);
-  }
+.control:hover,
+.copy:hover {
+  background: var(--bubble-hover);
 }
 
-@keyframes flashSuccess {
-  0% {
-    box-shadow:
-      0 0 0 0 var(--jade-a6),
-      0 6px 16px rgba(15, 15, 17, 0.28);
-  }
-  60% {
-    box-shadow:
-      0 0 0 14px transparent,
-      0 6px 16px rgba(15, 15, 17, 0.28);
-  }
+/* 单键胶囊沿用主窗口的录音键，旁边的通知文字留在正文底色上。 */
+.shell:is([data-state='arming'], [data-state='processing']) .control {
+  background: var(--bubble-button-bg, transparent);
+  color: var(--bubble-button-ink, var(--bubble-ink));
 }
 
-@keyframes flashError {
-  0% {
-    box-shadow:
-      0 0 0 0 var(--red-a6),
-      0 6px 16px rgba(15, 15, 17, 0.28);
-  }
-  60% {
-    box-shadow:
-      0 0 0 14px transparent,
-      0 6px 16px rgba(15, 15, 17, 0.28);
-  }
+.shell[data-state='arming'] .control:hover {
+  background: var(--bubble-button-hover, var(--bubble-hover));
 }
 
-/* 减少动态效果时球体不再随音量缩放，音量只由音晕的
-   透明度与半径表达，状态仍然分得清。 */
-@media (prefers-reduced-motion: reduce) {
-  .recording {
-    transform: none;
-  }
+.shell[data-state='recording'] .control {
+  width: auto;
+  padding: 0 17px;
+  gap: 14px;
+  border-radius: 22px;
+  color: var(--bubble-ink);
+  background-color: var(--bubble-wave-bg, transparent);
+}
 
-  .levelHalo {
-    transform: none;
-  }
+.shell[data-state='recording'] .control:hover {
+  background-color: var(--bubble-hover);
+}
 
-  .toolbarPill {
-    transform: none;
-    transition: none;
-  }
+.shell[data-state='recording'] .control > svg {
+  color: var(--bubble-stop);
+}
+
+.wave {
+  display: inline-flex;
+  align-items: center;
+  height: 23px;
+  gap: 3px;
+}
+
+.wave i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleY(calc(0.13 + var(--mic-level) * var(--bar-weight) * 0.87));
+  transition: transform 75ms linear;
+}
+
+.body {
+  min-width: 0;
+  max-width: 254px;
+  padding: 9px 3px;
+  overflow-y: auto;
+  max-height: 164px;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  user-select: text;
+}
+
+.body::-webkit-scrollbar {
+  display: none;
+}
+
+.body:last-child {
+  padding-right: 16px;
+}
+
+.result,
+.notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notice[role='alert'] {
+  color: var(--bubble-alert);
+}
+
+.copy {
+  margin: 0 4px;
+  width: 32px;
+  height: 32px;
 }

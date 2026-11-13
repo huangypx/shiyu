@@ -1,49 +1,77 @@
-import { SegmentedControl, Select, TextField } from '@radix-ui/themes';
+import { Select, TextField } from '@radix-ui/themes';
 
-import type { Appearance } from '@/store/uiStore';
-import type { DesktopSettings, DesktopState } from '@/types/models';
+import { captureHotkey } from '@/features/desktop/hotkey';
+import {
+  DEFAULT_DESKTOP_SETTINGS,
+  type DesktopSettings,
+  type DesktopState,
+} from '@/types/models';
 
 import styles from '../SettingsDialog.module.css';
+import AppearanceSection from './AppearanceSection';
 import ToggleRow from './ToggleRow';
 
 type Props = {
   desktop: DesktopSettings;
   desktopState?: DesktopState;
   onDesktopChange: (patch: Partial<DesktopSettings>) => void;
-  appearance: Appearance;
-  onAppearanceChange: (appearance: Appearance) => void;
 };
 
 export default function DesktopSection({
   desktop,
   desktopState,
   onDesktopChange,
-  appearance,
-  onAppearanceChange,
 }: Props) {
   const hotkeyHint =
-    desktopState?.hotkeyRegistered && desktopState.canInjectText
-      ? '快捷键已注册，应用在后台也可以开始录音。'
-      : desktopState?.hotkeyRegistered && !desktopState.canInjectText
-        ? '快捷键已注册；未找到系统粘贴工具，结果仍会复制到剪贴板。'
-        : desktopState?.hotkeyReason ||
-          '桌面端会优先注册全局快捷键，浏览器预览使用窗口内快捷键。';
+    desktopState?.hotkeyReason ||
+    '按一次开始录音，再按一次结束。点击输入框可录入新快捷键。';
 
   return (
     <div className={styles.form}>
+      <AppearanceSection />
       <div className={styles.field}>
-        <span className={styles.label}>全局快捷键</span>
+        <label htmlFor="recording-hotkey" className={styles.label}>
+          开始 / 结束录音快捷键
+        </label>
         <TextField.Root
+          id="recording-hotkey"
           value={desktop.hotkey}
+          onFocus={(event) => event.target.select()}
           onChange={(event) => onDesktopChange({ hotkey: event.target.value })}
-          placeholder="Ctrl+Shift+Space"
-          aria-label="全局快捷键"
+          onKeyDown={(event) => {
+            const hotkey = captureHotkey(event.nativeEvent);
+            if (hotkey) {
+              event.preventDefault();
+              event.stopPropagation();
+              onDesktopChange({ hotkey });
+            }
+          }}
+          placeholder={DEFAULT_DESKTOP_SETTINGS.hotkey}
           aria-describedby="hotkey-help"
         />
       </div>
       <p className={styles.hint} id="hotkey-help">
         {hotkeyHint}
       </p>
+
+      <div className={styles.field}>
+        <span className={styles.label}>关闭窗口时</span>
+        <Select.Root
+          value={desktop.closeAction}
+          onValueChange={(value) =>
+            onDesktopChange({
+              closeAction: value as DesktopSettings['closeAction'],
+            })
+          }
+        >
+          <Select.Trigger aria-label="关闭窗口时" />
+          <Select.Content>
+            <Select.Item value="ask">每次询问</Select.Item>
+            <Select.Item value="background">后台运行</Select.Item>
+            <Select.Item value="quit">直接退出</Select.Item>
+          </Select.Content>
+        </Select.Root>
+      </div>
 
       <ToggleRow
         title="整理完成后自动粘贴"
@@ -52,8 +80,21 @@ export default function DesktopSection({
         onCheckedChange={(checked) => onDesktopChange({ autoPaste: checked })}
       />
       <ToggleRow
-        title="启动时显示浮动圆圈"
-        description="主窗口仍可从圆圈展开"
+        title="开机启动"
+        description={
+          desktopState?.platform === 'windows'
+            ? '登录 Windows 后自动在后台运行'
+            : '开机启动适用于 Windows 桌面端'
+        }
+        checked={desktop.launchAtLogin}
+        disabled={desktopState?.platform !== 'windows'}
+        onCheckedChange={(checked) =>
+          onDesktopChange({ launchAtLogin: checked })
+        }
+      />
+      <ToggleRow
+        title="启动时在后台运行"
+        description="点击系统托盘里的拾语图标可打开主窗口"
         checked={desktop.startInBubble}
         onCheckedChange={(checked) =>
           onDesktopChange({ startInBubble: checked })
@@ -83,18 +124,6 @@ export default function DesktopSection({
           onDesktopChange({ showResultPreview: checked })
         }
       />
-
-      <div className={styles.field}>
-        <span className={styles.label}>外观</span>
-        <SegmentedControl.Root
-          value={appearance}
-          onValueChange={(value) => onAppearanceChange(value as Appearance)}
-        >
-          <SegmentedControl.Item value="system">跟随系统</SegmentedControl.Item>
-          <SegmentedControl.Item value="light">浅色</SegmentedControl.Item>
-          <SegmentedControl.Item value="dark">深色</SegmentedControl.Item>
-        </SegmentedControl.Root>
-      </div>
 
       <div className={styles.field}>
         <span className={styles.label}>历史保留期</span>

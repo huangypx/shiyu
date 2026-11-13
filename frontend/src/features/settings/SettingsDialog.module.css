@@ -131,6 +131,7 @@
   font-size: 11px;
 }
 
+.modelList .presetItemActive,
 .presetItemActive {
   border-color: var(--app-border-strong);
   background: var(--app-surface-active);

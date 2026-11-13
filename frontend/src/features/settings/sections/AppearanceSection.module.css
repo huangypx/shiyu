@@ -1,0 +1,103 @@
+.section {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.section legend {
+  margin-bottom: 7px;
+  padding: 0;
+  color: var(--app-ink-soft);
+  font-size: 12px;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.option {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+}
+
+.card {
+  display: grid;
+  height: 100%;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+}
+
+.option:hover .card {
+  background: var(--app-surface-hover);
+}
+
+.option input:checked + .card {
+  border-color: var(--app-accent-strong);
+}
+
+.option input:focus-visible + .card {
+  outline: 2px solid var(--app-accent-strong);
+  outline-offset: 2px;
+}
+
+.swatch {
+  display: block;
+  height: 26px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 9%);
+  background: linear-gradient(
+    100deg,
+    var(--sample-source) 0 48%,
+    var(--sample-result) 48% 78%,
+    var(--sample-accent) 78%
+  );
+}
+
+.swatch[data-swatch='celadon'] {
+  --sample-source: #d7eae1;
+  --sample-result: #f8f8f0;
+  --sample-accent: #c3472c;
+}
+
+.swatch[data-swatch='mono'] {
+  --sample-source: #f6f6f7;
+  --sample-result: #e2e3e5;
+  --sample-accent: #303134;
+}
+
+.swatch[data-swatch='plum'] {
+  --sample-source: #3d2541;
+  --sample-result: #4a2b47;
+  --sample-accent: #ffba8f;
+}
+
+.caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  color: var(--app-ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.caption svg {
+  flex: none;
+  color: var(--app-accent-strong);
+}

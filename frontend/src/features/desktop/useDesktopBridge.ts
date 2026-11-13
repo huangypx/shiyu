@@ -22,10 +22,10 @@ export function useDesktopBridge() {
   const settingsTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    void loadDesktopState()
-      .then((remote) => remote && setRuntime(remote))
-      .catch(() => undefined);
+    let receivedEvent = false;
+    let live = true;
     const unsubscribeState = subscribeDesktopState((state) => {
+      receivedEvent = true;
       // 先结束遮罩再换路由：AppShell 首次挂载就必须带上
       // data-entering，否则会先以正常状态闪一帧再开始淡入。
       const { transition, settle } = useWindowTransitionStore.getState();
@@ -35,7 +35,12 @@ export function useDesktopBridge() {
     const unsubscribeTransition = subscribeDesktopTransition((transition) =>
       useWindowTransitionStore.getState().start(transition),
     );
-    // 控制器从外部打开了偏好设置（浮动球的设置图标），
+    void loadDesktopState()
+      .then((remote) => {
+        if (remote && live && !receivedEvent) setRuntime(remote);
+      })
+      .catch(() => undefined);
+    // 控制器从浮动球右键菜单打开了偏好设置，
     // 这里只负责把弹窗打开。窗口还在过渡时先等落定，
     // 否则 Radix Dialog 会在缩放的窗口里被拉扯一帧。
     const unsubscribeSettings = subscribeDesktopSettings(() => {
@@ -59,6 +64,7 @@ export function useDesktopBridge() {
       }, delay);
     });
     return () => {
+      live = false;
       unsubscribeState();
       unsubscribeTransition();
       unsubscribeSettings();

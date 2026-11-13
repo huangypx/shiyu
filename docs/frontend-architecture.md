@@ -8,15 +8,15 @@
 src/
   main.tsx            挂载：先写 <html data-platform> ，再挂 AppTheme 与路由
   app/
-    App.tsx           浮动模式分支 / RouterProvider，≤ 40 行
+    App.tsx           窗口模式切换、路由与关闭确认
     providers.tsx     外观偏好解析 + Radix Theme 默认值
     router.tsx        createHashRouter 路由表
-    layout/           AppShell、Sidebar、TopBar、WindowControls
-    useFeedback.ts    主窗口 Toast / 浮动窗闪烁的统一出口
+    layout/           主窗口外壳、标题栏、工具栏和窗口按钮
+    useFeedback.ts    主窗口 Toast 与悬浮球通知的统一入口
   pages/              路由页面：record、history、calls
   features/           按业务能力切分，页面只做组装
     recorder/         录音入口、波形、录音状态机
-    transcript/       记录卡：原始记录 ⇄ 整理结果两面
+    transcript/       双栏编辑区，左侧原文与右侧整理结果
     history/          历史列表与 notesStore
     calls/            调用记录、调用详情、格式化函数
     settings/         设置弹窗、整理预设编辑（presets.ts 纯函数）与 settingsStore
@@ -27,7 +27,7 @@ src/
   styles/             global.css（reset/平台变量）、theme.css（设计 token）
   types/              models.ts（领域模型与默认值）
   mocks/              浏览器预览用的演示数据
-  lib/                纯函数：错误描述、日期与问候语
+  lib/                纯函数与通用工具，如错误描述、相对时间和快捷键格式
   test/               Vitest setup
 ```
 
@@ -37,13 +37,13 @@ src/
 
 | 路径 | 页面 |
 | --- | --- |
-| `#/` | 记录页（录音 + 可翻转的记录卡） |
+| `#/` | 转写原文与整理结果对照页 |
 | `#/history` | 历史记录 |
 | `#/calls` | 调用记录 |
 
 使用 hash 的原因：Wails 的 assetserver 只提供一份 `index.html`，path 路由在刷新时会 404，而 hash 路由在 `wails dev`、打包产物和浏览器预览里行为一致。
 
-设置弹窗**不进路由**。它需要能从浮动球设置图标和全局快捷键在任意页面打开，路由切换会卸载正在编辑的表单。
+设置弹窗由界面状态控制，主窗口快捷键和悬浮球右键菜单都能打开。
 
 ## 状态
 
@@ -51,7 +51,7 @@ src/
 
 | store | 内容 |
 | --- | --- |
-| `store/uiStore` | 侧栏开合、设置弹窗、Toast 队列、外观偏好、浮动窗闪烁 |
+| `store/uiStore` | 设置弹窗、Toast、外观偏好、悬浮球通知 |
 | `store/sessionStore` | 录音状态机（`idle` / `arming` / `recording` / `processing`）、处理阶段（`stage`: `transcribe` / `organize`）、转写与整理文本、调用指标、计时 |
 | `store/desktopStore` | 窗口模式、平台、backdrop 提示、快捷键注册结果 |
 | `features/settings/settingsStore` | 模型池、整理预设与桌面设置，负责 `hydrate` / `selectPreset` / `selectModel` / `save` |
@@ -59,7 +59,7 @@ src/
 | `features/calls/callsStore` | 调用日志，来自 Go 的会话内存 |
 | `features/desktop/windowTransitionStore` | 一次主窗口↔悬浮球过渡的方向、时长、锚点和起止 frame；不持久化 |
 
-窗口切换是唯一不进全局 store 的桌面动画状态：`windowTransitionStore` 只共享一次 transition，供 `AppShell`、`BubbleWindow` 和 `WindowTransition` 同时读取。收起时 `WindowTransition` 用当前 `innerWidth` 和锚点逐帧算水滴几何；展开不画水滴，只等悬浮球淡出、原生窗口落回 Go 记住的 frame 后，铺一层画布遮罩并让主界面在 200ms 内淡入。动画的起止 frame 与时长由 Go 的 `desktop:transition` 事件给出，前端不猜原生窗口的边界。
+手动收起窗口时，`desktop:transition` 事件提供窗口位置、尺寸和动画时长。`AppShell` 与 `WindowTransition` 使用 `windowTransitionStore` 绘制过渡。自动转入后台时直接切换。`useBubbleActivity` 根据录音状态、通知和整理结果决定悬浮球是否显示。
 
 约定：
 
@@ -70,11 +70,11 @@ src/
 - 状态切换必须等采集确认：`WavRecorder.ready` resolve 之后才允许从 `arming` 进入 `recording`，否则用户会对着还没生效的麦克风说话。
 - 流式转写的增量文本由 `subscribeAsrPartial` 模块级订阅一次（多个组件都会调用 `useRecordingActions`，各自订阅会把同一段文本重复写进面板），载荷是累计文本，直接覆盖写进 `sessionStore.transcript`。
 - 取消用递增的「处理代号」而不是布尔标记：`cancelTranscription` 把代号 +1 并 abort 本地 `AbortController`，后端 `CancelTranscription` 负责中断在途 HTTP；每个 `await` 之后核对代号，对不上的结果静默丢弃。
-- 记录卡的翻面跟随数据而不是自己记状态：`organized` 有内容就落在「整理结果」一面，被清空（新一次录音、取消、关掉结果预览）就回「原始记录」；用户手动翻面只是一次临时覆盖，下一次数据变化就让它失效。处理中的两段靠 `stage` 区分，界面才能说准是在识别还是在整理。
+- `transcript` 与 `organized` 分别驱动原文与结果栏。流式转写、手动修改原文和整理结果到达时各自更新，保留用户当前的编辑焦点。
 
 ## 服务层
 
-`services/bridge.ts` 是唯一与 Wails 绑定的地方，其它模块只调用它导出的函数。它同时负责两件事：把后端事件（`asr:partial`、`desktop:state` 等）转成回调，以及在取消时把等待方从 `await` 里立刻放出来（`raceWithAbort` 抛 `TransferCancelled`）。桌面端导入 Wails v3 CLI 生成的 `frontend/bindings/**`，并用 `window._wails` 判断运行时是否存在；浏览器预览没有该运行时，函数会返回 `undefined` 或退化成 `navigator.clipboard`，调用方负责决定演示数据与降级提示。
+`services/bridge.ts` 封装 Wails 的生成绑定、事件回调和可取消请求。原生窗口通过宿主平台信息或 WebView 消息通道识别。普通浏览器使用演示数据，复制走 `navigator.clipboard`。
 
 ### 持久化
 
@@ -86,7 +86,7 @@ src/
 
   - `typeless-settings`、`typeless-desktop-settings`：预览环境的配置副本
   - `typeless-notes`：预览环境的历史；桌面端首次启动会把它导入 SQLite，成功后删除
-  - `typeless-appearance`：唯一只存在前端的外观偏好
+  - `typeless-appearance`：保存配色方案及经典黑白的明暗偏好。缺少配色字段时使用青瓷绿 × 朱红。
 
 启动顺序有依赖：`settingsStore.hydrate` 必须先完成，`notesStore.hydrate` 才迁移旧记录——迁移时要读当前模型配置来补齐历史里的模型 ID。
 
@@ -94,7 +94,7 @@ src/
 
 - 组件样式写 `Component.module.css`，与组件同目录；不引入全局类名。
 - 颜色只使用 `styles/theme.css` 里的 `--app-*` 或 Radix 的 `--gray-*` / `--indigo-*` 等色阶，禁止字面色值（`theme.css` 与窗口控件特例除外）。
-- 深浅色共用一套规则：Radix 色阶会随 `<Theme appearance>` 自动翻转。
+- 青瓷使用浅色基础控件，梅紫使用深色基础控件。经典黑白沿用用户的浅色、深色或跟随系统偏好。浮动窗口与主窗口读取同一份配色。
 - 设计 token 定义在 `.radix-themes` 上，因为 Radix 的颜色变量只存在于主题容器内；写进 `:root` 会导致所有别名失效。
 - 断点仍是 900px 与 680px，CSS 变量不能用在 media query 里，保持字面值。
 
@@ -102,9 +102,9 @@ src/
 
 Radix Themes 提供按钮、弹窗、下拉、开关、标签页、输入框与 Toast 之外的全部基础控件；`@radix-ui/react-collapsible` 负责可展开区域，`@radix-ui/react-toast` 负责提示条。
 
-JS 驱动的动效走 `motion`（Framer Motion 的现行包）：记录卡的两面背对背常驻在同一个网格单元里，整张卡一次转 180°，转到一半时才露出另一面，因此不需要 `AnimatePresence` 换面；动效按需加载 `domAnimation`。背面用 `aria-hidden` + `inert` 关在可访问性树和 Tab 之外。悬停、状态色这类单值过渡仍用 CSS `transition`，不必为它引入动效库；`prefers-reduced-motion` 下不做翻转，两面改为淡入淡出。
+主窗口转场遵循系统的减少动态效果偏好。原文和整理结果同时显示，正文更新不切换视图。
 
-浮动球的主操作放在前端绘制的悬停工具栏里，只有「隐藏悬浮球」「退出拾语」还走 Wails v3 的原生 `ContextMenu`。macOS 的 WebKit 默认只在 key window 更新 hover，`desktop/hover_darwin.go` 用 `NSTrackingActiveAlways` 的 tracking area 把进入/离开转成 `window.__shiyuBubbleHover`，保证应用失焦时工具栏也能出现；鼠标移动时还会把坐标送进 `window.__shiyuBubblePointer`，由页面命中按钮并加 `data-hovered`。工具栏不经过 Radix Portal。
+`BubbleWindow` 显示录音状态、波形、通知或可复制的结果。右键菜单使用 Wails 的原生 `ContextMenu`，可展开主窗口、取消转写、打开偏好设置、隐藏悬浮球或退出。
 
 ## 工程化
 

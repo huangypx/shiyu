@@ -1,4 +1,8 @@
-import type { CallMetrics, CallRecord } from '@/types/models';
+import {
+  type CallMetrics,
+  type CallRecord,
+  DEFAULT_ASR_MODEL,
+} from '@/types/models';
 
 // 浏览器预览没有 Wails 绑定，也就没有任何服务商调用；
 // 演示数据让调用记录、编辑器面板在预览里仍然可读。
@@ -43,7 +47,7 @@ export const MOCK_CALLS: CallRecord[] = [
     id: 'demo-asr',
     kind: 'asr',
     provider: 'openai-compatible',
-    model: 'gpt-4o-mini-transcribe',
+    model: DEFAULT_ASR_MODEL.model,
     mode: 'transcriptions',
     endpoint: 'https://api.openai.com/v1/audio/transcriptions',
     startedAt: demoStartedAt,

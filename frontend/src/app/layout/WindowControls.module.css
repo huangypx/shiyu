@@ -8,12 +8,17 @@
 .control {
   display: grid;
   place-items: center;
-  width: 46px;
+  width: clamp(46px, 5.4vw, 84px);
   height: 100%;
   border: 0;
   background: transparent;
-  color: var(--app-ink-soft);
+  color: var(--app-ink);
   transition: background-color 120ms ease;
+}
+
+.control svg {
+  width: clamp(12px, 1.5vw, 23px);
+  height: auto;
 }
 
 .control:hover {

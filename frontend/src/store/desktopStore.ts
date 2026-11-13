@@ -9,6 +9,7 @@ function initialRuntime(): DesktopState {
   const platform = detectPlatform();
   return {
     mode: 'main',
+    closeRequested: false,
     hotkey: DEFAULT_DESKTOP_SETTINGS.hotkey,
     hotkeyRegistered: false,
     autoPaste: DEFAULT_DESKTOP_SETTINGS.autoPaste,

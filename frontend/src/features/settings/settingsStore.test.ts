@@ -154,8 +154,6 @@ describe('settingsStore', () => {
     const saved = await useSettingsStore.getState().save();
 
     expect(saved).toBe(false);
-    expect(localStorage.getItem(SETTINGS_KEY)).toContain(
-      'gpt-4o-mini-transcribe',
-    );
+    expect(localStorage.getItem(SETTINGS_KEY)).toContain('gpt-transcribe');
   });
 });

@@ -1,6 +1,5 @@
-/* 设计 token：颜色全部来自 Radix Themes 的色阶。
-   必须定义在 .radix-themes 上——Radix 的 --gray-* / --accent-*
-   只在主题容器里存在，写进 :root 会在计算时失效。 */
+/* 单色方案沿用 Radix 自适应色阶。弹层有独立的主题容器，
+   需要与主窗口使用同一组语义色。 */
 
 :where(.radix-themes) {
   /* 表面 */
@@ -22,6 +21,16 @@
   --app-accent-strong: var(--indigo-11);
   --app-accent-soft: var(--indigo-a3);
 
+  --app-window-bg: var(--app-surface);
+  --app-toolbar-bg: var(--app-surface);
+  --app-toolbar-ink: var(--app-ink);
+  --app-source-ink: var(--app-ink-soft);
+  --app-result-marker: var(--app-accent-strong);
+  --app-mic-bg: #303134;
+  --app-mic-hover: #414246;
+  --app-mic-ink: #fff;
+  --app-mic-stop: #ff9292;
+
   /* 状态 */
   --app-danger: var(--red-9);
   --app-danger-soft: var(--red-a3);
@@ -40,13 +49,102 @@
   --app-shadow-card: 0 1px 2px var(--black-a2);
 
   /* 布局 */
-  --app-sidebar-width: 236px;
   --app-content-max: 1040px;
-  /* 记录页是单栏阅读宽度：13px 正文在 720px 内一行不会太长，
-     历史与调用列表仍用更宽的 --app-content-max。 */
-  --app-content-narrow: 720px;
   --app-breakpoint-tablet: 900px;
   --app-breakpoint-mobile: 680px;
+}
+
+.radix-themes[data-palette='celadon'],
+html[data-palette='celadon'] .radix-themes {
+  --app-canvas: #d7eae1;
+  --app-surface: #f8f8f0;
+  --app-surface-subtle: #cfe5db;
+  --app-surface-hover: #c2dcd0;
+  --app-surface-active: #b6d5c6;
+  --app-ink: #0b372f;
+  --app-ink-soft: #31594d;
+  --app-ink-faint: #49665c;
+  --app-border: #b4d0c2;
+  --app-border-strong: #88ad9d;
+  --app-accent: #c3472c;
+  --app-accent-strong: #95351f;
+  --app-accent-soft: #f1d6c9;
+  --app-danger: #a92e21;
+  --app-danger-soft: #f6dacf;
+  --app-success: #27644c;
+  --app-success-soft: #c6ded0;
+  --app-source-ink: #143e33;
+  --app-mic-bg: #c4472c;
+  --app-mic-hover: #b13d25;
+  --app-mic-ink: #fff9ef;
+  --app-mic-shadow: inset 0 -3px 0 rgb(108 35 17 / 24%);
+}
+
+.radix-themes[data-palette='plum'],
+html[data-palette='plum'] .radix-themes {
+  --app-canvas: #3d2541;
+  --app-surface: #4a2b47;
+  --app-surface-subtle: #301b33;
+  --app-surface-hover: #583754;
+  --app-surface-active: #654260;
+  --app-ink: #ffe7d7;
+  --app-ink-soft: #ead1e7;
+  --app-ink-faint: #d0b5cf;
+  --app-border: #6c4c67;
+  --app-border-strong: #98768f;
+  --app-accent: #ffba8f;
+  --app-accent-strong: #ffceab;
+  --app-accent-soft: #684354;
+  --app-danger: #ffacaa;
+  --app-danger-soft: #683748;
+  --app-success: #a9dfc0;
+  --app-success-soft: #33483f;
+  --app-toolbar-ink: #dcbddd;
+  --app-mic-bg: #fbb888;
+  --app-mic-hover: #ffca9e;
+  --app-mic-ink: #382137;
+}
+
+.radix-themes:is([data-palette='celadon'], [data-palette='plum']),
+html:is([data-palette='celadon'], [data-palette='plum']) .radix-themes {
+  --app-window-bg: var(--app-canvas);
+  --app-toolbar-bg: var(--app-surface-subtle);
+  --app-result-marker: var(--app-accent);
+  --app-mic-stop: var(--app-mic-ink);
+
+  /* 设置、关闭确认和弹出菜单使用 Radix 自身的背景、焦点与状态色。 */
+  --color-panel-solid: var(--app-surface);
+  --color-panel: var(--app-surface);
+  --color-surface: color-mix(
+    in srgb,
+    var(--app-surface) 74%,
+    var(--app-canvas)
+  );
+  --gray-1: var(--app-surface);
+  --gray-2: var(--app-canvas);
+  --gray-12: var(--app-ink);
+  --gray-a3: var(--app-surface-hover);
+  --gray-a4: var(--app-surface-active);
+  --gray-a5: var(--app-border);
+  --gray-a7: var(--app-border-strong);
+  --gray-a11: var(--app-ink-soft);
+  --focus-8: var(--app-accent-strong);
+  --accent-indicator: var(--app-accent);
+  --accent-track: var(--app-accent);
+  --accent-9: var(--app-accent);
+  --accent-contrast: var(--app-mic-ink);
+  --accent-a4: var(--app-accent-soft);
+  --accent-a11: var(--app-accent-strong);
+  color: var(--app-ink);
+}
+
+html:is([data-palette='celadon'], [data-palette='plum'])
+  .rt-BaseDialogContent
+  .rt-BaseButton.rt-variant-solid.rt-high-contrast[data-accent-color='gray']:not(
+    [data-disabled]
+  ) {
+  color: var(--app-mic-ink);
+  background: var(--app-mic-bg);
 }
 
 /* Radix 控件的圆角会随 scaling 一起缩放，90% 下按钮只有 5.4px、

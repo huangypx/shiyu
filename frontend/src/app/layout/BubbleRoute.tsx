@@ -4,24 +4,25 @@ import { useRecordingActions } from '@/features/recorder/useRecordingSession';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUiStore } from '@/store/uiStore';
 
-// 浮动模式不走路由：窗口顶部是录音球，悬停时在下方显示三个操作。
-// 右键只保留隐藏悬浮球和退出拾语。
 export default function BubbleRoute() {
   const status = useSessionStore((state) => state.status);
-  const flash = useUiStore((state) => state.bubbleFlash);
-  const { toggleRecording, cancelTranscription } = useRecordingActions();
-  const { expandWindow, openSettingsWindow } = useWindowActions();
+  const result = useSessionStore((state) => state.bubbleResult);
+  const copied = useSessionStore((state) => state.copied);
+  const notice = useUiStore((state) => state.notice);
+  const { toggleRecording, copyResult } = useRecordingActions();
+  const { expandWindow } = useWindowActions();
 
   return (
     <BubbleWindow
       isArming={status === 'arming'}
       isRecording={status === 'recording'}
       isProcessing={status === 'processing'}
-      flash={flash}
+      result={result}
+      copied={copied}
+      notice={notice}
+      onCopy={copyResult}
       onToggle={toggleRecording}
       onExpand={expandWindow}
-      onCancel={cancelTranscription}
-      onOpenSettings={openSettingsWindow}
     />
   );
 }
