@@ -1,3 +1,5 @@
+//go:build !windows
+
 package desktop
 
 import (
@@ -27,9 +29,6 @@ func canPasteCurrentCursor() bool {
 	case "darwin":
 		_, err := exec.LookPath("osascript")
 		return err == nil
-	case "windows":
-		_, err := exec.LookPath("powershell")
-		return err == nil
 	default:
 		return false
 	}
@@ -50,7 +49,7 @@ func activeWindowID() string {
 	return strings.TrimSpace(string(output))
 }
 
-func pasteCurrentCursor(targetWindow string) error {
+func pasteCurrentCursor(targetWindow, _ string) error {
 	if runtime.GOOS == "linux" && targetWindow != "" {
 		if path, err := exec.LookPath("xdotool"); err == nil {
 			if output, activateErr := exec.Command(path, "windowactivate", "--sync", targetWindow).CombinedOutput(); activateErr != nil {
@@ -72,10 +71,6 @@ func pasteCurrentCursor(targetWindow string) error {
 	case "darwin":
 		if path, err := exec.LookPath("osascript"); err == nil {
 			command = exec.CommandContext(ctx, path, "-e", `tell application "System Events" to keystroke "v" using command down`)
-		}
-	case "windows":
-		if path, err := exec.LookPath("powershell"); err == nil {
-			command = exec.CommandContext(ctx, path, "-NoProfile", "-NonInteractive", "-Command", "$wshell = New-Object -ComObject WScript.Shell; $wshell.SendKeys('^v')")
 		}
 	}
 	if command == nil {

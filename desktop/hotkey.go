@@ -9,9 +9,15 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type hotkeyRegistration struct {
+	once      sync.Once
+	unbind    func()
+	key       string
 	cmd       *exec.Cmd
 	config    string
 	stop      chan struct{}
@@ -32,31 +38,57 @@ func (h *hotkeyRegistration) Stop() {
 	if h == nil {
 		return
 	}
-	if h.signals != nil {
-		signal.Stop(h.signals)
-	}
-	// 非 Linux 平台的注册对象只带有不可用原因，没有可关闭的通道；
-	// 直接 close(nil) 会在退出时 panic。
-	if h.stop == nil {
-		return
-	}
-	select {
-	case <-h.stop:
-		return
-	default:
-		close(h.stop)
-	}
-	if h.cmd != nil && h.cmd.Process != nil {
-		_ = h.cmd.Process.Kill()
-	}
-	if h.config != "" {
-		_ = os.Remove(h.config)
-	}
+	h.once.Do(func() {
+		if h.unbind != nil {
+			h.unbind()
+		}
+		if h.signals != nil {
+			signal.Stop(h.signals)
+		}
+		if h.stop != nil {
+			close(h.stop)
+		}
+		if h.cmd != nil && h.cmd.Process != nil {
+			_ = h.cmd.Process.Kill()
+		}
+		if h.config != "" {
+			_ = os.Remove(h.config)
+		}
+	})
 }
 
-func registerHotkey(hotkey string, callback func()) (*hotkeyRegistration, error) {
+func registerHotkey(host *application.App, hotkey string, callback func()) (*hotkeyRegistration, error) {
 	if strings.TrimSpace(hotkey) == "" {
 		return nil, errors.New("desktop hotkey is empty")
+	}
+	if host != nil {
+		switch strings.ToLower(strings.Join(strings.Fields(hotkey), "")) {
+		case "rightalt", "altright", "右alt":
+			return registerRightAlt(hotkey, callback)
+		}
+	}
+	if host != nil && (runtime.GOOS != "linux" || os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") == "") {
+		parts := strings.Split(hotkey, "+")
+		for i, part := range parts {
+			parts[i] = strings.ToLower(strings.TrimSpace(part))
+			switch parts[i] {
+			case "control":
+				parts[i] = "ctrl"
+			case "win", "windows", "meta":
+				parts[i] = "super"
+			case "esc":
+				parts[i] = "escape"
+			case "return":
+				parts[i] = "enter"
+			}
+		}
+		accelerator := strings.Join(parts, "+")
+		if err := host.GlobalShortcut.Register(accelerator, callback); err != nil {
+			return nil, err
+		}
+		return &hotkeyRegistration{key: hotkey, available: true, unbind: func() {
+			_ = host.GlobalShortcut.Unregister(accelerator)
+		}}, nil
 	}
 	if runtime.GOOS != "linux" {
 		return &hotkeyRegistration{available: false, reason: "global hotkey adapter is not enabled on this platform yet"}, nil
@@ -94,6 +126,7 @@ func registerHotkey(hotkey string, callback func()) (*hotkeyRegistration, error)
 	}
 
 	registration := &hotkeyRegistration{
+		key:       hotkey,
 		cmd:       exec.Command(xbindkeys, "--nodaemon", "--file", config),
 		config:    config,
 		stop:      make(chan struct{}),

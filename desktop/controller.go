@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -21,25 +23,20 @@ const (
 	ModeMain   = "main"
 	ModeBubble = "bubble"
 
-	mainWidth     = 1000
-	mainHeight    = 820
-	mainMinWidth  = 640
-	mainMinHeight = 640
-	// 浮动窗顶部 92x92 是球，底部 34px 预留给悬停工具栏。固定
-	// 加高能让工具栏始终落在工作区内，也避免悬停时改窗口尺寸。
-	bubbleWidth  = 92
-	bubbleHeight = 126
-
-	// 首次进入浮动模式时，球停在当前屏幕工作区右下角，
-	// 与边缘留出一点呼吸空间。
-	bubbleRightInset  = 28
-	bubbleBottomInset = 56
+	mainWidth         = 1000
+	mainHeight        = 820
+	mainMinWidth      = 640
+	mainMinHeight     = 640
+	bubbleSize        = 56
+	bubbleBottomInset = 20
+	focusSettleDelay  = 150 * time.Millisecond
 )
 
 // State 刻意保持精简且易于 JSON 序列化：原生控制器掌管真实窗口，
 // React 外壳只管自己的视觉状态。
 type State struct {
 	Mode             string `json:"mode"`
+	CloseRequested   bool   `json:"closeRequested"`
 	Hotkey           string `json:"hotkey"`
 	HotkeyRegistered bool   `json:"hotkeyRegistered"`
 	HotkeyReason     string `json:"hotkeyReason,omitempty"`
@@ -53,29 +50,48 @@ type State struct {
 	Backdrop string `json:"backdrop"`
 }
 
-// Controller 持有唯一的 Wails v3 窗口，并在主窗口与浮动球之间
-// 切换它的尺寸、置顶和 macOS chrome。浮动球的主操作由前端
-// 悬停工具栏提供，右键菜单只保留隐藏与退出（见 menu.go）。
-type Controller struct {
-	app     *backend.App
-	desktop *application.App
-	window  *application.WebviewWindow
+// RecordingHotkey 记住按键时的窗口模式和输入框，供录音界面就绪后领取。
+type RecordingHotkey struct {
+	Mode   string `json:"mode"`
+	Target string `json:"target"`
+}
 
-	mu           sync.RWMutex
-	mode         string
-	hotkey       *hotkeyRegistration
-	reason       string
-	started      bool
-	targetWindow string
-	// 窗口切换是一次异步动画：transitioning 期间 SetMode 直接
-	// 忽略新请求，避免两次动画互相追着改 frame。
-	transitioning    bool
-	transitionCancel chan struct{}
-	// lastMainBounds 只在内存里记住收起前的主窗口位置，重启后
-	// 回到默认尺寸，不引入新的配置字段。
-	lastMainBounds    application.Rect
-	hasLastMainBounds bool
-	reduceMotion      bool
+// Controller 持有唯一的 Wails v3 窗口，并在主窗口与浮动球之间
+// 切换它的尺寸、置顶和 macOS chrome。右键菜单由系统原生菜单
+// 负责（见 menu.go），不再需要放大窗口来容纳弹层。
+type Controller struct {
+	app       *backend.App
+	desktop   *application.App
+	window    *application.WebviewWindow
+	clipboard textClipboard
+
+	clipboardMu       sync.Mutex
+	clipboardRevision uint64
+
+	mu             sync.RWMutex
+	layoutMu       sync.Mutex
+	hotkeyMu       sync.Mutex
+	startupMu      sync.Mutex
+	closeMu        sync.Mutex
+	closePending   bool
+	quitting       bool
+	bubbleWidth    int
+	bubbleHeight   int
+	bubbleActive   bool
+	mode           string
+	modeEpoch      uint64
+	lastMainBounds application.Rect
+	shrinkCancel   chan struct{}
+	reduceMotion   bool
+	hotkey         *hotkeyRegistration
+	pendingHotkeys []RecordingHotkey
+	transcribing   bool
+	reason         string
+	started        bool
+	targetWindow   string
+	// cancelItem 是浮动球右键菜单里的「取消这段转写」。菜单由
+	// RegisterBubbleMenu 创建，控制器只负责按录音状态切换可用性。
+	cancelItem *application.MenuItem
 }
 
 type point struct {
@@ -84,16 +100,20 @@ type point struct {
 }
 
 func NewController(app *backend.App, desktop *application.App, window *application.WebviewWindow) *Controller {
-	return &Controller{
+	c := &Controller{
 		app:     app,
 		desktop: desktop,
 		window:  window,
 		mode:    ModeMain,
 	}
+	if desktop != nil && desktop.Clipboard != nil {
+		c.clipboard = desktop.Clipboard
+	}
+	return c
 }
 
 // ServiceStartup 由 Wails 在应用启动时调用：注册快捷键、准备
-// 首击补丁，并在用户选择了「以悬浮球启动」时先切到 92x92。
+// 首击补丁，并在用户选择了「以悬浮球启动」时先切到浮动模式。
 func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
 	c.mu.Lock()
 	c.started = true
@@ -102,57 +122,95 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 	// 原生 chrome 和首击补丁必须在窗口第一次显示前准备好；
 	// 其他应用在前台时，浮动球仍然要能响应第一次点击。
 	enableFirstMouseClick()
-	c.refreshHotkey()
 
+	if c.desktop != nil {
+		// 登录启动后即注册快捷键。隐藏的 WebView 可能要到第一次录音时才完成加载。
+		c.desktop.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+			c.refreshHotkey()
+			c.emitState()
+		})
+	}
 	if c.window != nil {
+		lostFocus := events.Common.WindowLostFocus
+		if runtime.GOOS == "windows" {
+			// 子控件交接键盘焦点也会触发 WindowKillFocus。这里只关心顶层窗口失活。
+			lostFocus = events.Windows.WindowInactive
+		}
+		c.window.OnWindowEvent(lostFocus, func(*application.WindowEvent) {
+			c.scheduleBackgroundCheck()
+		})
+		c.window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			c.mu.RLock()
+			quitting := c.quitting
+			c.mu.RUnlock()
+			if !quitting {
+				event.Cancel()
+				go func() { _ = c.RequestClose() }()
+			}
+		})
+		c.window.OnWindowEvent(events.Common.WindowMinimise, func(*application.WindowEvent) {
+			if c.window.IsMinimised() {
+				_ = c.SetMode(ModeBubble)
+			}
+		})
+		// 系统最小化后窗口坐标可能已移出屏幕，正常移动和缩放结束时先留存。
+		c.window.OnWindowEvent(events.Common.WindowDidMove, c.trackMainBounds)
+		c.window.OnWindowEvent(events.Common.WindowDidResize, c.trackMainBounds)
 		// NativeWindow() 要等平台窗口真正创建后才可用。运行时
 		// 就绪后按当前模式补一次 chrome，覆盖「以球启动」和
 		// 首次显示时窗口尚未创建的情况。
 		c.window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
-			// 悬停桥必须在窗口第一次显示前装好；动画守卫只影响
-			// chrome 与位置，不应连带跳过它。
-			enableBubbleHoverTracking(c.window.NativeWindow())
-			c.syncBubbleHoverTracking()
-			// 动画中途的 RuntimeReady 不能按当前模式重刷 chrome，
-			// 否则会把刚切好的 borderless 或位置覆盖掉。
-			if c.isTransitioning() {
-				return
-			}
-			c.applyWindowChrome()
+			c.refreshHotkey()
+			c.emitState()
 			// 启动时屏幕缓存可能还没就绪，等 WebView 运行时准备好后
 			// 再按保存位置放一次浮动球。
-			c.positionBubbleIfNeeded()
+			c.syncBubbleAfterStartup()
+			c.scheduleBackgroundCheck()
 		})
+	} else {
+		c.refreshHotkey()
 	}
 
-	if c.app != nil && c.app.GetDesktopConfig().StartInBubble {
-		// 启动路径不能播动画：窗口还没显示，前端也还没准备好遮罩。
-		if err := c.applyModeImmediately(ModeBubble); err != nil {
-			return err
+	if c.app != nil {
+		cfg := c.app.GetDesktopConfig()
+		if c.desktop != nil && runtime.GOOS == "windows" && cfg.LaunchAtLogin {
+			if err := setLaunchAtLogin(true); err != nil {
+				log.Printf("configure launch at login: %v", err)
+			}
 		}
-		c.showWindow()
+		if BackgroundStartup(cfg.StartInBubble, os.Args[1:]) {
+			if err := c.SetMode(ModeBubble); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
 func (c *Controller) ServiceShutdown() error {
-	// 先停掉在途动画，再保存位置：展开途中退出时不能把中间的
-	// 窗口坐标写成悬浮球位置。
-	c.cancelTransition()
-	_ = c.persistBubblePosition()
-
+	// 拖拽可能在没有干净 mouse-up 的情况下结束，退出前再存一次。
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.hotkey != nil {
-		c.hotkey.Stop()
-		c.hotkey = nil
+	c.quitting = true
+	c.cancelShrinkLocked()
+	old := c.hotkey
+	c.hotkey = nil
+	c.mu.Unlock()
+	// 退出可能发生在原生主线程，不能等待正在向该线程提交的窗口或快捷键操作。
+	if c.layoutMu.TryLock() {
+		_ = c.persistBubblePositionLocked(false)
+		c.layoutMu.Unlock()
 	}
+	c.mu.Lock()
+	c.started = false
+	c.mu.Unlock()
+	old.Stop()
 	return nil
 }
 
 func (c *Controller) GetState() State {
 	c.mu.RLock()
 	mode := c.mode
+	closeRequested := c.closePending
 	registration := c.hotkey
 	reason := c.reason
 	c.mu.RUnlock()
@@ -163,6 +221,7 @@ func (c *Controller) GetState() State {
 	}
 	state := State{
 		Mode:             mode,
+		CloseRequested:   closeRequested,
 		Hotkey:           cfg.Hotkey,
 		AutoPaste:        cfg.AutoPaste,
 		KeepBubbleOnTop:  cfg.KeepBubbleOnTop,
@@ -181,14 +240,26 @@ func (c *Controller) GetState() State {
 }
 
 func (c *Controller) SetMode(mode string) error {
-	if mode != ModeMain && mode != ModeBubble {
+	if mode == ModeMain {
+		return c.ShowMainWindow()
+	}
+	if mode != ModeBubble {
 		return fmt.Errorf("unknown desktop mode %q", mode)
 	}
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
 
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	return c.setModeLocked(mode)
+}
+
+func (c *Controller) setModeLocked(mode string) error {
 	window := c.window
+	if mode == ModeMain && window.IsMinimised() {
+		window.UnMinimise()
+	}
 	// 全屏切换过程中改窗口样式或尺寸会让 AppKit 进入不一致状态；
 	// 先退出全屏，等系统完成动画再继续。
 	if window.IsFullscreen() {
@@ -198,390 +269,149 @@ func (c *Controller) SetMode(mode string) error {
 		}
 	}
 
-	c.mu.RLock()
-	current := c.mode
-	transitioning := c.transitioning
-	reduceMotion := c.reduceMotion
-	c.mu.RUnlock()
-
-	// 动画期间的重复请求直接忽略：顶栏已禁用，右键菜单也可能
-	// 在窗口还没落定时被触发，排队只会让 frame 来回抖。
-	if transitioning || current == mode {
-		return nil
-	}
-	if reduceMotion {
-		return c.applyModeImmediately(mode)
-	}
-	return c.beginTransition(mode)
-}
-
-// SetReduceMotion 由前端把 prefers-reduced-motion 同步过来。原生
-// 窗口动画读不到 CSS 媒体查询，只能由宿主代为关掉。
-func (c *Controller) SetReduceMotion(enabled bool) error {
+	// 先写模式再改窗口：WindowRuntimeReady 回调可能在尺寸/样式
+	// 调用之间插入，回调按当前模式补 chrome，不能读到旧模式。
 	c.mu.Lock()
-	c.reduceMotion = enabled
-	c.mu.Unlock()
-	return nil
-}
-
-func (c *Controller) isTransitioning() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.transitioning
-}
-
-// cancelTransition 让在途动画在下一帧退出。关闭通道而不是等
-// goroutine 自己结束，退出流程才不会被一帧 frame 卡住。
-func (c *Controller) cancelTransition() {
-	c.mu.Lock()
-	if c.transitionCancel != nil {
-		close(c.transitionCancel)
-		c.transitionCancel = nil
+	previousMode := c.mode
+	wasShrinking := c.cancelShrinkLocked()
+	c.mode = mode
+	c.modeEpoch++
+	if mode == ModeBubble {
+		c.closePending = false
 	}
-	c.transitioning = false
 	c.mu.Unlock()
-}
-
-// beginTransition 负责收起/展开的公共编排：先占住 transitioning，
-// 再计算两端矩形、切 chrome、放宽尺寸约束，最后交给动画协程。
-func (c *Controller) beginTransition(mode string) error {
-	window := c.window
-
-	c.mu.Lock()
-	if c.transitioning || c.mode == mode {
-		c.mu.Unlock()
-		return nil
-	}
-	c.transitioning = true
-	cancel := make(chan struct{})
-	c.transitionCancel = cancel
-	c.mu.Unlock()
-
-	direction := transitionShrink
-	// 展开不使用锚点；收起在下面按球的左右位置重算。
-	anchor := anchorTopRight
-	var from, to application.Rect
-	var mainBounds application.Rect
-	rememberMain := false
 
 	if mode == ModeBubble {
-		// 先记下主窗口位置；它必须是切换 chrome 之前的值。
-		mainBounds = window.Bounds()
-		rememberMain = mainBounds.Width >= mainMinWidth &&
-			mainBounds.Height >= mainMinHeight
-		// borderless 可能带走标题栏高度，动画起点以切换后的
-		// 真实 frame 为准，否则第一帧会跳。
-		c.applyBubbleChrome(window)
-		from = window.Bounds()
-		to = c.bubbleRect()
-		anchor = bubbleAnchor(
-			to.X+to.Width/2,
-			mainBounds.X+mainBounds.Width/2,
-		)
-		// 收缩过程中保持可见；最终置顶跟随用户配置。
-		window.SetAlwaysOnTop(true)
-	} else {
-		direction = transitionExpand
-		from = window.Bounds()
-		to = c.restoreMainTarget()
-		// 展开不画水滴；anchor 保留默认值，事件载荷保持一致。
-		// 悬浮球淡出期间仍置顶，落定后 applySettledMode 恢复普通层级。
-		window.SetAlwaysOnTop(true)
-	}
-
-	// 只有收起需要逐帧改 frame；展开是等球淡出后直接回到记忆
-	// 的主窗口位置。动画期间不能保留 92x126 的 max 或 640px 的
-	// min，否则中间帧会被系统夹住。
-	if mode == ModeBubble {
-		window.SetMaxSize(0, 0)
-		window.SetMinSize(0, 0)
-	}
-
-	if from.Width <= 0 || from.Height <= 0 || to.Width <= 0 || to.Height <= 0 {
-		// 原生窗口还没就绪或屏幕信息缺失：退回无动画路径，
-		// 至少保证模式和尺寸最终一致。
-		c.resetTransition(cancel)
-		return c.applyModeImmediately(mode)
-	}
-
-	if rememberMain {
-		c.rememberMainBounds(mainBounds)
-	}
-
-	// 动画开始前可能已经退出（关闭应用）；不要给已经取消的
-	// 切换再发事件或启动协程。
-	c.mu.RLock()
-	stillCurrent := c.transitionCancel == cancel
-	c.mu.RUnlock()
-	if !stillCurrent {
-		return nil
-	}
-
-	duration := shrinkDuration
-	var ease func(float64) float64 = easeInOutCubic
-	eventDuration := shrinkDuration
-	if mode == ModeMain {
-		// 展开没有逐帧动画：这 160ms 只用来让悬浮球淡出，
-		// 然后把窗口直接放回记忆的位置。
-		duration = 0
-		ease = nil
-		eventDuration = expandLeadIn
-	}
-	c.emitTransition(transitionEvent{
-		Direction:  direction,
-		DurationMs: int(eventDuration / time.Millisecond),
-		Anchor:     anchor,
-		From:       boundsFromRect(from),
-		To:         boundsFromRect(to),
-	})
-	go c.runTransition(mode, from, to, duration, ease, cancel)
-	return nil
-}
-
-// runTransition 先等前端挂好遮罩、悬浮球淡出。收起逐帧推进
-// 窗口 frame，展开直接把窗口落到记忆位置。defer 保证无论完成、
-// 取消还是异常都不会把 transitioning 永久留在 true。
-func (c *Controller) runTransition(
-	mode string,
-	from, to application.Rect,
-	duration time.Duration,
-	ease func(float64) float64,
-	cancel chan struct{},
-) {
-	defer func() {
-		c.mu.Lock()
-		// 只清自己这一次的标记；cancelTransition 已经清过时
-		// 不能顺手把之后可能开始的新切换也关掉。
-		if c.transitionCancel == cancel {
-			c.transitionCancel = nil
-			c.transitioning = false
+		if previousMode != ModeBubble {
+			if !wasShrinking && window.NativeWindow() != nil && !window.IsMinimised() {
+				c.rememberMainBounds(window.Bounds())
+			}
+			c.bubbleActive = false
+			if window.NativeWindow() != nil {
+				hideBubbleWindow(window)
+			}
 		}
-		c.mu.Unlock()
-	}()
-
-	leadIn := shrinkLeadIn
-	if mode == ModeMain {
-		leadIn = expandLeadIn
-	}
-	select {
-	case <-time.After(leadIn):
-	case <-cancel:
-		return
-	}
-
-	// 展开只等悬浮球淡出，随后直接把原生窗口放到记忆的位置；
-	// 窗口在屏幕上移动的过程不可见，用户看到的是主界面在
-	// 原来的位置淡入，而不是悬浮球飞过去。
-	if mode == ModeMain {
-		c.applySettledMode(mode, to)
-		return
-	}
-
-	if !animateWindowBounds(from, to, duration, ease, c.setWindowBounds, cancel) {
-		return
-	}
-	c.applySettledMode(mode, to)
-}
-
-// applySettledMode 把窗口落到最终状态并通知 React 换路由。chrome、
-// 尺寸约束和 bounds 的顺序不能反：styleMask 切换可能改变 frame，
-// 所以最后一次 setWindowBounds 必须在恢复 chrome 之后。展开时先
-// 移窗口再恢复 chrome，避免交通灯在球窗位置闪一帧。
-func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
-	window := c.window
-	if window == nil {
-		return
-	}
-	// 先把约束放开再落 bounds：收起的 92px max 或展开的 640px min
-	// 如果还生效，会在窗口移动到目标位置前先夹一帧。
-	window.SetMaxSize(0, 0)
-	window.SetMinSize(0, 0)
-	if mode == ModeBubble {
 		c.applyBubbleChrome(window)
-		c.setWindowBounds(bounds)
-	} else {
-		// 展开时先把透明窗口移到主窗口位置，再恢复 titled chrome；
-		// 反过来会让交通灯在 92px 的球窗位置闪一下。chrome 切换
-		// 可能改 frame，所以最后再落一次 bounds。
-		c.setWindowBounds(bounds)
+		window.SetMaxSize(0, 0)
+		window.SetMinSize(bubbleSize, bubbleSize)
+		window.SetResizable(false)
+		if previousMode != ModeBubble {
+			c.bubbleWidth, c.bubbleHeight = bubbleSize, bubbleSize
+		}
+		c.positionBubble()
+	} else if previousMode != ModeMain || wasShrinking {
+		target := c.restoreMainTarget()
 		c.applyMainChrome(window)
-		c.setWindowBounds(bounds)
-	}
-	if mode == ModeBubble {
-		window.SetMaxSize(bubbleWidth, bubbleHeight)
-		window.SetMinSize(bubbleWidth, bubbleHeight)
-		window.SetAlwaysOnTop(c.keepBubbleOnTop())
-	} else {
+		window.SetResizable(true)
 		window.SetMaxSize(0, 0)
 		window.SetMinSize(mainMinWidth, mainMinHeight)
+		setNativeWindowBounds(window, target)
 		window.SetAlwaysOnTop(false)
 	}
 
-	c.mu.Lock()
-	c.mode = mode
-	c.mu.Unlock()
-	c.syncBubbleHoverTracking()
-	if mode == ModeMain {
-		// 从悬浮球展开时应用可能不在前台；落定后主动取得焦点，
-		// 否则窗口虽然恢复在原位，仍会被其他应用盖住。
-		window.Focus()
-	}
 	c.emitState()
-}
-
-// applyModeImmediately 是启动、减少动效和异常回退共用的无动画
-// 路径：直接切 chrome、约束和 bounds，然后发一次状态。
-func (c *Controller) applyModeImmediately(mode string) error {
-	if err := c.ensureRuntime(); err != nil {
-		return err
-	}
-	window := c.window
-	if mode == ModeBubble {
-		c.mu.RLock()
-		current := c.mode
-		c.mu.RUnlock()
-		if current == ModeMain {
-			c.rememberMainBounds(window.Bounds())
-		}
-		c.applySettledMode(mode, c.bubbleRect())
-		return nil
-	}
-	c.applySettledMode(mode, c.restoreMainTarget())
 	return nil
 }
 
-func (c *Controller) resetTransition(cancel chan struct{}) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.transitionCancel == cancel {
-		c.transitionCancel = nil
-		c.transitioning = false
-	}
-}
-
-func (c *Controller) rememberMainBounds(bounds application.Rect) {
-	if bounds.Width < mainMinWidth || bounds.Height < mainMinHeight {
-		return
-	}
-	c.mu.Lock()
-	c.lastMainBounds = bounds
-	c.hasLastMainBounds = true
-	c.mu.Unlock()
-}
-
-// bubbleRect 计算悬浮球目标。保存位置仍落在某块屏幕上时沿用那块
-// 屏幕和坐标，否则回到当前屏幕的右下角。
-func (c *Controller) bubbleRect() application.Rect {
-	area := c.bubbleWorkArea()
-	var saved *point
-	if c.app != nil {
-		if position := c.app.GetDesktopConfig().BubblePosition; position != nil {
-			candidate := point{X: position.X, Y: position.Y}
-			if screen := c.screenAt(candidate); screen != nil {
-				area = screen.WorkArea
-				saved = &candidate
-			}
-		}
-	}
-	return bubbleTargetBounds(area, saved)
-}
-
-func (c *Controller) bubbleWorkArea() application.Rect {
-	if screen := c.windowScreen(); screen != nil {
-		return screen.WorkArea
-	}
-	// 没有屏幕信息时退回常见笔记本尺寸，与 v2 一致。
-	return application.Rect{Width: 1440, Height: 900}
-}
-
-// restoreMainTarget 返回收起前记住的主窗口矩形。屏幕布局变了
-// 或没有记录时，在悬浮球所在屏幕居中默认尺寸。
-func (c *Controller) restoreMainTarget() application.Rect {
+func (c *Controller) scheduleBackgroundCheck() {
 	c.mu.RLock()
-	last := c.lastMainBounds
-	hasLast := c.hasLastMainBounds
+	epoch := c.modeEpoch
 	c.mu.RUnlock()
-
-	if hasLast {
-		center := point{X: last.X + last.Width/2, Y: last.Y + last.Height/2}
-		if screen := c.screenAt(center); screen != nil {
-			return clampRectToWorkArea(last, screen.WorkArea)
-		}
-	}
-
-	area := c.bubbleWorkArea()
-	return clampRectToWorkArea(centeredRect(area, mainWidth, mainHeight), area)
+	time.AfterFunc(focusSettleDelay, func() { c.collapseInactiveMain(epoch) })
 }
 
-func (c *Controller) setWindowBounds(bounds application.Rect) {
-	if c.window == nil {
-		return
-	}
-	setNativeWindowBounds(c.window, bounds)
-}
-
-func (c *Controller) emitTransition(event transitionEvent) {
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:transition", event)
+func (c *Controller) collapseInactiveMain(epoch uint64) {
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	c.mu.RLock()
+	eligible := c.started && !c.quitting && !c.closePending && c.mode == ModeMain && c.modeEpoch == epoch
+	c.mu.RUnlock()
+	if eligible && c.window != nil && c.window.IsVisible() && !mainWindowInForeground(c.window) {
+		_ = c.setModeLocked(ModeBubble)
 	}
 }
 
 func (c *Controller) ToggleMode() error {
+	if err := c.ensureRuntime(); err != nil {
+		return err
+	}
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
 	c.mu.RLock()
 	mode := c.mode
+	reduceMotion := c.reduceMotion
+	busy := c.shrinkCancel != nil || c.closePending || c.quitting
 	c.mu.RUnlock()
-	if mode == ModeBubble {
-		return c.SetMode(ModeMain)
+	if busy {
+		return nil
 	}
-	return c.SetMode(ModeBubble)
+	if mode == ModeBubble {
+		return c.showMainWindowLocked()
+	}
+	window := c.window
+	if !reduceMotion && window.IsVisible() && !window.IsFullscreen() &&
+		!window.IsMaximised() && !window.IsMinimised() && mainWindowInForeground(window) {
+		from := window.Bounds()
+		if target, ok := c.targetBubbleBounds(bubbleSize, bubbleSize); ok && from.Width > 0 && from.Height > 0 {
+			c.beginShrink(from, target)
+			return nil
+		}
+	}
+	return c.setModeLocked(ModeBubble)
 }
 
 func (c *Controller) ShowMainWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	// 隐藏状态下展开时，先让窗口以悬浮球形态出现并聚焦，再开始
-	// 长大；否则动画可能在一个不可见的窗口上播放。
-	if !c.window.IsVisible() {
-		c.window.Show()
-		c.applyWindowChrome()
-		c.positionBubbleIfNeeded()
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	return c.showMainWindowLocked()
+}
+
+func (c *Controller) showMainWindowLocked() error {
+	c.mu.RLock()
+	fromBubble := c.mode == ModeBubble && !c.reduceMotion
+	c.mu.RUnlock()
+	if fromBubble && c.window.IsVisible() && !c.window.IsMinimised() {
+		c.emitTransition(transitionExpand, c.window.Bounds(), c.restoreMainTarget(), expandLeadIn)
 	}
-	c.window.Focus()
-	return c.SetMode(ModeMain)
+	if err := c.setModeLocked(ModeMain); err != nil {
+		return err
+	}
+	c.window.Show().Focus()
+	c.applyMainChrome(c.window)
+	return nil
 }
 
 func (c *Controller) HideWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	// 动画途中隐藏会把窗口停在中间尺寸，下一次展开就找不到
-	// 正确的悬浮球矩形；直接忽略这次请求。
-	if c.isTransitioning() {
-		return nil
-	}
-	_ = c.persistBubblePosition()
-	// 窗口隐藏后收不到 mouseExited，先让前端清掉悬停态，下次
-	// 显示时不会带着工具栏出现。
-	c.window.ExecJS("window.__shiyuBubbleHover&&window.__shiyuBubbleHover(false)")
-	c.window.Hide()
+	c.SetBubbleActivity(false)
 	return nil
 }
 
-// MinimiseWindow 支撑 Windows/Linux 的自绘标题栏按钮；
-// macOS 窗口改用系统自带的黄色交通灯。
+// MinimiseWindow 将主窗口转入后台，后续录音仍可由全局快捷键触发。
 func (c *Controller) MinimiseWindow() error {
 	if err := c.ensureMainMode(); err != nil {
 		return err
 	}
-	c.window.Minimise()
-	return nil
+	return c.SetMode(ModeBubble)
 }
 
 // ToggleMaximiseWindow 支撑 Windows/Linux 的自绘标题栏按钮。
 func (c *Controller) ToggleMaximiseWindow() error {
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
 	if err := c.ensureMainMode(); err != nil {
 		return err
+	}
+	c.mu.RLock()
+	shrinking := c.shrinkCancel != nil
+	c.mu.RUnlock()
+	if shrinking {
+		return nil
 	}
 	c.window.ToggleMaximise()
 	return nil
@@ -606,33 +436,37 @@ func (c *Controller) SaveBubblePosition() error {
 	}
 	c.mu.RLock()
 	mode := c.mode
-	transitioning := c.transitioning
 	c.mu.RUnlock()
-	if mode != ModeBubble || transitioning {
+	if mode != ModeBubble {
 		return nil
 	}
-	return c.persistBubblePosition()
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	return c.persistBubblePositionLocked(true)
 }
 
-func (c *Controller) persistBubblePosition() error {
+func (c *Controller) persistBubblePositionLocked(dragged bool) error {
 	if c.app == nil || c.window == nil {
 		return nil
 	}
 	c.mu.RLock()
 	mode := c.mode
 	started := c.started
-	transitioning := c.transitioning
 	c.mu.RUnlock()
-	// 展开途中窗口正在移动，此时保存会覆盖掉用户原来拖到的
-	// 悬浮球坐标；退出流程会先 cancelTransition 再走到这里。
-	if !started || transitioning || mode != ModeBubble || !c.window.IsVisible() {
+	if !started || mode != ModeBubble || !c.window.IsVisible() {
+		return nil
+	}
+	if !dragged && (c.bubbleWidth != bubbleSize || c.bubbleHeight != bubbleSize) {
 		return nil
 	}
 
 	// v3 的窗口坐标是绝对屏幕坐标。用户可能在拖拽后拔掉副屏，
 	// 因此保存前按窗口中心所在屏幕的工作区再钳制一次。
 	x, y := c.window.Position()
-	center := point{X: x + bubbleWidth/2, Y: y + bubbleHeight/2}
+	// 胶囊向上展开。记录底部中央的球位，下一次内容变宽时仍对齐同一处。
+	x += (c.bubbleWidth - bubbleSize) / 2
+	y += c.bubbleHeight - bubbleSize
+	center := point{X: x + bubbleSize/2, Y: y + bubbleSize/2}
 	position := clampPoint(point{X: x, Y: y}, c.workAreaAt(center))
 
 	cfg := c.app.GetDesktopConfig()
@@ -641,24 +475,125 @@ func (c *Controller) persistBubblePosition() error {
 		cfg.BubblePosition.Y == position.Y {
 		return nil
 	}
-	cfg.BubblePosition = &backend.BubblePosition{X: position.X, Y: position.Y}
-	return c.app.SaveDesktopConfig(cfg)
+	return backend.UpdateDesktopConfig(c.app, func(cfg *backend.DesktopConfig) {
+		cfg.BubblePosition = &backend.BubblePosition{X: position.X, Y: position.Y}
+	})
+}
+
+// ResizeBubble 让原生窗口跟随内容大小，收起后仍回到原来的球心。
+func (c *Controller) ResizeBubble(width, height int) {
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	c.mu.RLock()
+	inBubble := c.mode == ModeBubble
+	c.mu.RUnlock()
+	if !inBubble || c.window == nil {
+		return
+	}
+	width, height = clampInt(width, bubbleSize, 400), clampInt(height, bubbleSize, 240)
+	if width != c.bubbleWidth || height != c.bubbleHeight {
+		c.bubbleWidth, c.bubbleHeight = width, height
+		c.positionBubble()
+	}
+}
+
+// SetBubbleActivity 只改变浮动窗的显隐，迟到的定时器不能隐藏刚打开的主窗口。
+func (c *Controller) SetBubbleActivity(visible bool) {
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	c.mu.RLock()
+	inBubble := c.started && !c.quitting && c.mode == ModeBubble
+	awaitingHotkey := len(c.pendingHotkeys) > 0
+	c.mu.RUnlock()
+	if !inBubble || c.window == nil || (!visible && awaitingHotkey) {
+		return
+	}
+	c.bubbleActive = visible
+	if visible && !c.window.IsVisible() {
+		c.positionBubble()
+		presentBubbleWindow(c.window, c.keepBubbleOnTop())
+	} else if !visible && c.window.IsVisible() {
+		_ = c.persistBubblePositionLocked(false)
+		hideBubbleWindow(c.window)
+	}
 }
 
 func (c *Controller) positionBubble() {
 	if c.window == nil {
 		return
 	}
-	c.setWindowBounds(c.bubbleRect())
+	if bounds, ok := c.targetBubbleBounds(c.bubbleWidth, c.bubbleHeight); ok {
+		setNativeWindowBounds(c.window, bounds)
+	} else {
+		c.window.SetSize(c.bubbleWidth, c.bubbleHeight)
+	}
+}
+
+func (c *Controller) targetBubbleBounds(width, height int) (application.Rect, bool) {
+	screen := c.windowScreen()
+	if screen == nil {
+		return application.Rect{}, false
+	}
+	area := screen.WorkArea
+	var anchor *point
+	if c.app != nil {
+		if saved := c.app.GetDesktopConfig().BubblePosition; saved != nil {
+			savedPoint := point{X: saved.X, Y: saved.Y}
+			if target := c.screenAt(savedPoint); target != nil {
+				// 保存的位置仍在某块屏幕上，原样恢复。
+				area = target.WorkArea
+				anchor = &savedPoint
+			}
+		}
+	}
+
+	return bubbleTargetBounds(area, anchor, width, height), true
+}
+
+func bubbleBounds(anchor point, area application.Rect, width, height int) application.Rect {
+	width, height = min(width, area.Width), min(height, area.Height)
+	return application.Rect{
+		X:     clampInt(anchor.X+(bubbleSize-width)/2, area.X, area.X+area.Width-width),
+		Y:     clampInt(anchor.Y+bubbleSize-height, area.Y, area.Y+area.Height-height),
+		Width: width, Height: height,
+	}
 }
 
 // OpenSettings 展开主窗口，并请求渲染层打开偏好设置对话框，
-// 对应浮动球悬停工具栏里的设置图标。
+// 对应浮动球右键菜单里的条目。
 func (c *Controller) OpenSettings() error {
 	if err := c.ShowMainWindow(); err != nil {
 		return err
 	}
 	c.emitSettings()
+	return nil
+}
+
+// attachCancelMenuItem 保存菜单项引用，供 SetTranscribing 更新。
+func (c *Controller) attachCancelMenuItem(item *application.MenuItem) {
+	c.mu.Lock()
+	c.cancelItem = item
+	c.mu.Unlock()
+}
+
+// requestCancelTranscription 把右键菜单的点击转成前端事件：录音
+// 状态由 React 侧持有，Go 只负责转发这次意图。
+func (c *Controller) requestCancelTranscription() {
+	if c.desktop != nil {
+		c.desktop.Event.Emit("desktop:cancel-transcribe")
+	}
+}
+
+// SetTranscribing 让菜单项在「没有进行中的录音」时置灰。原生菜单
+// 每次弹出前都会按当前状态重建，因此这里改完下次弹出即可见。
+func (c *Controller) SetTranscribing(active bool) error {
+	c.mu.Lock()
+	c.transcribing = active
+	item := c.cancelItem
+	c.mu.Unlock()
+	if item != nil {
+		item.SetEnabled(active)
+	}
 	return nil
 }
 
@@ -674,15 +609,13 @@ func (c *Controller) emitSettings() {
 	}
 }
 
-func (c *Controller) emitHotkey() {
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:hotkey")
-	}
-}
-
 // Quit 通过 Wails 的应用管理器退出桌面进程。无边框窗口隐藏了
 // 原生标题栏关闭按钮，因此需要暴露这个方法。
 func (c *Controller) Quit() {
+	c.mu.Lock()
+	c.quitting = true
+	c.cancelShrinkLocked()
+	c.mu.Unlock()
 	if c.desktop != nil {
 		c.desktop.Quit()
 	}
@@ -694,13 +627,35 @@ func (c *Controller) CopyText(text string) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("text is empty")
 	}
-	if c.desktop == nil {
+	if c.clipboard == nil {
 		return errors.New("desktop controller is not started")
 	}
-	if !c.desktop.Clipboard.SetText(text) {
+	c.clipboardMu.Lock()
+	defer c.clipboardMu.Unlock()
+	return c.writeClipboardLocked(text)
+}
+
+type textClipboard interface {
+	Text() (string, bool)
+	SetText(string) bool
+}
+
+func (c *Controller) writeClipboardLocked(text string) error {
+	if !c.clipboard.SetText(text) {
 		return errors.New("set clipboard failed")
 	}
+	// 复制和自动粘贴即使写入同一段文字，也代表两次独立的用户操作。
+	c.clipboardRevision++
 	return nil
+}
+
+func (c *Controller) restoreClipboardLocked(revision uint64, pasted, previous string) {
+	if revision != c.clipboardRevision {
+		return
+	}
+	if current, ok := c.clipboard.Text(); ok && current == pasted {
+		_ = c.writeClipboardLocked(previous)
+	}
 }
 
 // PasteText 把文本输入到当前应用：先更新剪贴板，
@@ -708,35 +663,103 @@ func (c *Controller) CopyText(text string) error {
 // 没有可用的宿主注入器时，文本会留在剪贴板里，
 // 用户仍能手动粘贴，结果不会丢。
 func (c *Controller) PasteText(text string) error {
+	c.mu.RLock()
+	target := c.targetWindow
+	c.mu.RUnlock()
+	return c.pasteTo(text, target, "")
+}
+
+// FocusedBubbleInput 只记录当前可编辑控件的标识，供录音完成时复核。
+func (c *Controller) FocusedBubbleInput() string {
+	c.mu.RLock()
+	inBubble := c.mode == ModeBubble
+	c.mu.RUnlock()
+	if !inBubble {
+		return ""
+	}
+	return focusedInputTarget()
+}
+
+// PasteBubbleResult 仅在原输入框仍有焦点时粘贴，否则交给浮动球展示。
+func (c *Controller) PasteBubbleResult(text, target string) (bool, error) {
+	if target == "" || c.app == nil || !c.app.GetDesktopConfig().AutoPaste {
+		return false, nil
+	}
+	err := c.pasteTo(text, "", target)
+	if errors.Is(err, errInputChanged) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// FinishForegroundRecording 在投递前核对原生窗口，避免失焦事件尚未到达时误粘贴。
+func (c *Controller) FinishForegroundRecording(text string, autoPaste bool) (bool, error) {
+	if err := c.ensureRuntime(); err != nil {
+		return false, err
+	}
+	c.layoutMu.Lock()
+	c.mu.RLock()
+	mode, pending := c.mode, c.closePending || c.quitting
+	shrinking := c.shrinkCancel != nil
+	c.mu.RUnlock()
+	if pending || mode != ModeMain {
+		c.layoutMu.Unlock()
+		return false, nil
+	}
+	if shrinking || c.window.IsMinimised() || !c.window.IsVisible() || !mainWindowInForeground(c.window) {
+		err := c.setModeLocked(ModeBubble)
+		c.layoutMu.Unlock()
+		return false, err
+	}
+	c.layoutMu.Unlock()
+	if autoPaste {
+		return true, c.PasteText(text)
+	}
+	return true, nil
+}
+
+var errInputChanged = errors.New("the original input no longer has keyboard focus")
+
+func (c *Controller) pasteTo(text, targetWindow, expectedInput string) error {
+	restore := c.app != nil && c.app.GetDesktopConfig().RestoreClipboard
+	return c.pasteWithClipboard(text, expectedInput, restore, func() error {
+		return pasteCurrentCursor(targetWindow, expectedInput)
+	})
+}
+
+func (c *Controller) pasteWithClipboard(text, expectedInput string, restore bool, inject func() error) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("text is empty")
 	}
-	if c.desktop == nil {
+	if c.clipboard == nil {
 		return errors.New("desktop controller is not started")
 	}
-	cfg := backend.DesktopConfig{}
-	if c.app != nil {
-		cfg = c.app.GetDesktopConfig()
-	}
+	c.clipboardMu.Lock()
+	defer c.clipboardMu.Unlock()
 	var previous string
 	var havePrevious bool
-	if cfg.RestoreClipboard {
-		previous, havePrevious = c.desktop.Clipboard.Text()
+	if restore || expectedInput != "" {
+		previous, havePrevious = c.clipboard.Text()
 	}
-	if !c.desktop.Clipboard.SetText(text) {
-		return errors.New("set clipboard failed")
+	if expectedInput != "" && c.FocusedBubbleInput() != expectedInput {
+		return errInputChanged
 	}
-	c.mu.RLock()
-	targetWindow := c.targetWindow
-	c.mu.RUnlock()
-	if err := pasteCurrentCursor(targetWindow); err != nil {
+	if err := c.writeClipboardLocked(text); err != nil {
 		return err
 	}
-	if cfg.RestoreClipboard && havePrevious {
-		go func() {
-			time.Sleep(1500 * time.Millisecond)
-			c.desktop.Clipboard.SetText(previous)
-		}()
+	revision := c.clipboardRevision
+	if err := inject(); err != nil {
+		if errors.Is(err, errInputChanged) && havePrevious {
+			c.restoreClipboardLocked(revision, text, previous)
+		}
+		return err
+	}
+	if restore && havePrevious {
+		time.AfterFunc(1500*time.Millisecond, func() {
+			c.clipboardMu.Lock()
+			defer c.clipboardMu.Unlock()
+			c.restoreClipboardLocked(revision, text, previous)
+		})
 	}
 	return nil
 }
@@ -745,50 +768,97 @@ func (c *Controller) ConfigureHotkey(hotkey string) error {
 	if c.app == nil {
 		return errors.New("backend app is not configured")
 	}
-	cfg := c.app.GetDesktopConfig()
-	cfg.Hotkey = strings.TrimSpace(hotkey)
-	if err := c.app.SaveDesktopConfig(cfg); err != nil {
+	if err := backend.UpdateDesktopConfig(c.app, func(cfg *backend.DesktopConfig) {
+		cfg.Hotkey = strings.TrimSpace(hotkey)
+	}); err != nil {
 		return err
 	}
 	c.refreshHotkey()
+	c.emitState()
 	return nil
 }
 
 func (c *Controller) refreshHotkey() {
-	c.mu.Lock()
-	if c.hotkey != nil {
-		c.hotkey.Stop()
-		c.hotkey = nil
-	}
-	started := c.started
-	c.mu.Unlock()
-	if !started || c.app == nil {
+	c.hotkeyMu.Lock()
+	defer c.hotkeyMu.Unlock()
+	if c.app == nil {
 		return
 	}
-	cfg := c.app.GetDesktopConfig()
-	registration, err := registerHotkey(cfg.Hotkey, func() {
-		// 在 Wails 窗口收到任何结果事件前，先记下当时
-		// 拥有焦点的应用；自动粘贴正是靠它回到发起
-		// 快捷键的编辑器或聊天应用。
-		if target := activeWindowID(); target != "" {
-			c.mu.Lock()
-			c.targetWindow = target
-			c.mu.Unlock()
-		}
-		if c.window != nil {
-			c.showWindow()
-			c.window.Focus()
-		}
-		c.emitHotkey()
-	})
+	key := c.app.GetDesktopConfig().Hotkey
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if !c.started || c.quitting || (c.hotkey.Available() && c.hotkey.key == key) {
+		c.mu.Unlock()
+		return
+	}
+	old := c.hotkey
+	c.hotkey = nil
+	c.mu.Unlock()
+	old.Stop()
+	registration, err := registerHotkey(c.desktop, key, c.handleHotkey)
+	c.mu.Lock()
+	if c.quitting || !c.started {
+		c.mu.Unlock()
+		registration.Stop()
+		return
+	}
 	if err != nil {
 		c.reason = err.Error()
+	} else {
+		c.hotkey = registration
+		c.reason = ""
+	}
+	c.mu.Unlock()
+}
+
+func (c *Controller) handleHotkey() {
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	c.mu.RLock()
+	mode, blocked := c.mode, !c.started || c.quitting || c.closePending
+	active := c.transcribing
+	shrinking := c.shrinkCancel != nil
+	c.mu.RUnlock()
+	if blocked || c.window == nil {
 		return
 	}
-	c.hotkey = registration
-	c.reason = ""
+	background := shrinking || mode == ModeBubble || !c.window.IsVisible() || c.window.IsMinimised() || !mainWindowInForeground(c.window)
+	var input string
+	if background && !active {
+		// 在浮动窗出现前取得焦点，避免把刚显示的胶囊误认为最初的输入目标。
+		input = focusedInputTarget()
+	}
+	if mode == ModeMain && background {
+		if err := c.setModeLocked(ModeBubble); err != nil {
+			return
+		}
+		mode = ModeBubble
+	}
+	if mode == ModeMain {
+		target := activeWindowID()
+		c.mu.Lock()
+		c.targetWindow = target
+		c.mu.Unlock()
+	}
+	c.mu.Lock()
+	c.pendingHotkeys = append(c.pendingHotkeys, RecordingHotkey{Mode: mode, Target: input})
+	c.mu.Unlock()
+	if mode == ModeBubble && !c.window.IsVisible() {
+		c.bubbleActive = true
+		c.positionBubble()
+		presentBubbleWindow(c.window, c.keepBubbleOnTop())
+	}
+	if c.desktop != nil {
+		c.desktop.Event.Emit("desktop:hotkey", mode)
+	}
+}
+
+// TakeRecordingHotkeys 让第一次按键可以先于前端订阅到达，多次通知只领取一次。
+func (c *Controller) TakeRecordingHotkeys() []RecordingHotkey {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keys := c.pendingHotkeys
+	c.pendingHotkeys = nil
+	return keys
 }
 
 func (c *Controller) ensureRuntime() error {
@@ -808,13 +878,7 @@ func (c *Controller) ensureMainMode() error {
 	}
 	c.mu.RLock()
 	mode := c.mode
-	transitioning := c.transitioning
 	c.mu.RUnlock()
-	// 动画期间窗口正在改尺寸，系统最小化/最大化会把中间 frame
-	// 写进 AppKit 的还原栈；等落定后再允许。
-	if transitioning {
-		return errors.New("window controls are unavailable during a transition")
-	}
 	if mode != ModeMain {
 		return errors.New("window controls are only available in main mode")
 	}
@@ -828,76 +892,42 @@ func (c *Controller) keepBubbleOnTop() bool {
 	return c.app.GetDesktopConfig().KeepBubbleOnTop
 }
 
-// showWindow 在显示后重新应用 chrome：Wails 的 macOS show()
-// 会按 Mac.DisableShadow 重置窗口阴影，把浮动球的透明边缘又画出来。
-func (c *Controller) showWindow() {
-	if c.window == nil {
-		return
-	}
-	c.window.Show()
-	// 悬停桥依赖原生 webview；显示后再补一次，覆盖窗口隐藏后
-	// 重新显示的情况，重复安装是安全的。
-	enableBubbleHoverTracking(c.window.NativeWindow())
-	c.syncBubbleHoverTracking()
-	// 动画途中热键也可能把窗口叫出来；这时不能按旧模式重刷
-	// chrome 或位置，否则会把收缩/展开的中间 frame 拽回去。
-	if c.isTransitioning() {
-		return
-	}
-	c.applyWindowChrome()
-
-	// 首次显示时 AppKit 会把窗口放到初始位置，可能覆盖 SetPosition
-	// 的落点。显示完成后再按保存的位置放一次。
-	c.positionBubbleIfNeeded()
-}
-
-func (c *Controller) positionBubbleIfNeeded() {
+func (c *Controller) syncBubbleAfterStartup() {
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
 	c.mu.RLock()
 	mode := c.mode
-	transitioning := c.transitioning
+	shrinking := c.shrinkCancel != nil
 	c.mu.RUnlock()
-	if mode == ModeBubble && !transitioning {
-		c.positionBubble()
-	}
-}
-
-// syncBubbleHoverTracking 只在浮动模式开启指针跟踪：主窗口面积大，
-// 每次鼠标移动都送进网页没有意义，也会增加 WebView 往返。
-func (c *Controller) syncBubbleHoverTracking() {
-	if c.window == nil {
-		return
-	}
-	c.mu.RLock()
-	bubble := c.mode == ModeBubble
-	c.mu.RUnlock()
-	setBubbleHoverTrackingEnabled(c.window.NativeWindow(), bubble)
-}
-
-func (c *Controller) applyWindowChrome() {
-	c.mu.RLock()
-	mode := c.mode
-	window := c.window
-	transitioning := c.transitioning
-	c.mu.RUnlock()
-	if window == nil || transitioning {
+	if shrinking {
 		return
 	}
 	if mode == ModeBubble {
-		c.applyBubbleChrome(window)
-		return
+		c.applyBubbleChrome(c.window)
+		c.positionBubble()
+		if c.bubbleActive {
+			presentBubbleWindow(c.window, c.keepBubbleOnTop())
+		} else {
+			hideBubbleWindow(c.window)
+		}
+	} else {
+		c.applyMainChrome(c.window)
+		if c.window.IsVisible() && !c.window.IsMinimised() {
+			c.rememberMainBounds(c.window.Bounds())
+		}
 	}
-	c.applyMainChrome(window)
 }
 
-// applyBubbleChrome 把窗口切成浮动球形态。非 macOS 平台过去是空实现，
-// Windows 现在要在这里收掉 DWM 的玻璃边框（否则球后面会露出方框）；
-// 其他平台的实现仍然是空函数。
 func (c *Controller) applyBubbleChrome(window *application.WebviewWindow) {
-	setBubbleChrome(window.NativeWindow())
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		setBubbleChrome(window.NativeWindow())
+	}
 }
 
 func (c *Controller) applyMainChrome(window *application.WebviewWindow) {
-	restoreMainChrome(window.NativeWindow())
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		restoreMainChrome(window.NativeWindow())
+	}
 }
 
 // windowScreen 返回窗口当前所在的屏幕；Wails 还没创建原生窗口时
@@ -948,8 +978,8 @@ func rectContains(area application.Rect, position point) bool {
 
 func clampPoint(position point, area application.Rect) point {
 	return point{
-		X: clampInt(position.X, area.X, area.X+area.Width-bubbleWidth),
-		Y: clampInt(position.Y, area.Y, area.Y+area.Height-bubbleHeight),
+		X: clampInt(position.X, area.X, area.X+area.Width-bubbleSize),
+		Y: clampInt(position.Y, area.Y, area.Y+area.Height-bubbleSize),
 	}
 }
 

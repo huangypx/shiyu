@@ -3,14 +3,18 @@
 
 /**
  * Controller 持有唯一的 Wails v3 窗口，并在主窗口与浮动球之间
- * 切换它的尺寸、置顶和 macOS chrome。浮动球的主操作由前端
- * 悬停工具栏提供，右键菜单只保留隐藏与退出（见 menu.go）。
+ * 切换它的尺寸、置顶和 macOS chrome。右键菜单由系统原生菜单
+ * 负责（见 menu.go），不再需要放大窗口来容纳弹层。
  * @module
  */
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as backend$0 from "../backend/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -26,6 +30,20 @@ export function ConfigureHotkey(hotkey: string): $CancellablePromise<void> {
  */
 export function CopyText(text: string): $CancellablePromise<void> {
     return $Call.ByID(3042920448, text);
+}
+
+/**
+ * FinishForegroundRecording 在投递前核对原生窗口，避免失焦事件尚未到达时误粘贴。
+ */
+export function FinishForegroundRecording(text: string, autoPaste: boolean): $CancellablePromise<boolean> {
+    return $Call.ByID(3065392027, text, autoPaste);
+}
+
+/**
+ * FocusedBubbleInput 只记录当前可编辑控件的标识，供录音完成时复核。
+ */
+export function FocusedBubbleInput(): $CancellablePromise<string> {
+    return $Call.ByID(3951719691);
 }
 
 export function GetState(): $CancellablePromise<$models.State> {
@@ -47,8 +65,7 @@ export function IsWindowMaximised(): $CancellablePromise<boolean> {
 }
 
 /**
- * MinimiseWindow 支撑 Windows/Linux 的自绘标题栏按钮；
- * macOS 窗口改用系统自带的黄色交通灯。
+ * MinimiseWindow 将主窗口转入后台，后续录音仍可由全局快捷键触发。
  */
 export function MinimiseWindow(): $CancellablePromise<void> {
     return $Call.ByID(13487727);
@@ -56,10 +73,17 @@ export function MinimiseWindow(): $CancellablePromise<void> {
 
 /**
  * OpenSettings 展开主窗口，并请求渲染层打开偏好设置对话框，
- * 对应浮动球悬停工具栏里的设置图标。
+ * 对应浮动球右键菜单里的条目。
  */
 export function OpenSettings(): $CancellablePromise<void> {
     return $Call.ByID(312554983);
+}
+
+/**
+ * PasteBubbleResult 仅在原输入框仍有焦点时粘贴，否则交给浮动球展示。
+ */
+export function PasteBubbleResult(text: string, target: string): $CancellablePromise<boolean> {
+    return $Call.ByID(205154158, text, target);
 }
 
 /**
@@ -81,6 +105,27 @@ export function Quit(): $CancellablePromise<void> {
 }
 
 /**
+ * RequestClose 统一处理系统关闭事件和自绘标题栏的关闭按钮。
+ */
+export function RequestClose(): $CancellablePromise<void> {
+    return $Call.ByID(3465681613);
+}
+
+/**
+ * ResizeBubble 让原生窗口跟随内容大小，收起后仍回到原来的球心。
+ */
+export function ResizeBubble(width: number, height: number): $CancellablePromise<void> {
+    return $Call.ByID(1635320152, width, height);
+}
+
+/**
+ * ResolveClose 先保存用户勾选的偏好，写入失败时保留弹窗供重试。
+ */
+export function ResolveClose(action: string, remember: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1030999254, action, remember);
+}
+
+/**
  * SaveBubblePosition 持久化用户放下浮动圆圈的位置。渲染层
  * 会在拖拽结束时上报；控制器在窗口隐藏或应用退出时也会
  * 调用它，因为拖拽可能在没有干净 mouse-up 事件的情况下
@@ -90,20 +135,50 @@ export function SaveBubblePosition(): $CancellablePromise<void> {
     return $Call.ByID(1415631218);
 }
 
+/**
+ * SaveDesktopConfig 在保存开机启动偏好时同步系统设置，落盘失败则恢复原设置。
+ */
+export function SaveDesktopConfig(cfg: backend$0.DesktopConfig): $CancellablePromise<void> {
+    return $Call.ByID(2825352767, cfg);
+}
+
+/**
+ * SetBubbleActivity 只改变浮动窗的显隐，迟到的定时器不能隐藏刚打开的主窗口。
+ */
+export function SetBubbleActivity(visible: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1139783777, visible);
+}
+
 export function SetMode(mode: string): $CancellablePromise<void> {
     return $Call.ByID(964221665, mode);
 }
 
 /**
- * SetReduceMotion 由前端把 prefers-reduced-motion 同步过来。原生
- * 窗口动画读不到 CSS 媒体查询，只能由宿主代为关掉。
+ * SetReduceMotion 同步用户的系统偏好，让原生窗口与网页一起减少动效。
  */
 export function SetReduceMotion(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(529343266, enabled);
 }
 
+/**
+ * SetTranscribing 让菜单项在「没有进行中的录音」时置灰。原生菜单
+ * 每次弹出前都会按当前状态重建，因此这里改完下次弹出即可见。
+ */
+export function SetTranscribing(active: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1675960766, active);
+}
+
 export function ShowMainWindow(): $CancellablePromise<void> {
     return $Call.ByID(550490530);
+}
+
+/**
+ * TakeRecordingHotkeys 让第一次按键可以先于前端订阅到达，多次通知只领取一次。
+ */
+export function TakeRecordingHotkeys(): $CancellablePromise<$models.RecordingHotkey[]> {
+    return $Call.ByID(2271970563).then(($result: any) => {
+        return $$createType2($result);
+    });
 }
 
 /**
@@ -119,3 +194,5 @@ export function ToggleMode(): $CancellablePromise<void> {
 
 // Private type creation functions
 const $$createType0 = $models.State.createFrom;
+const $$createType1 = $models.RecordingHotkey.createFrom;
+const $$createType2 = $Create.Array($$createType1);

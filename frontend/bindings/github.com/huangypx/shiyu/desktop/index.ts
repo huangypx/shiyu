@@ -7,5 +7,6 @@ export {
 };
 
 export {
+    RecordingHotkey,
     State
 } from "./models.js";

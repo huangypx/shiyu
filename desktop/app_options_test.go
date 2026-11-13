@@ -10,17 +10,20 @@ import (
 func TestNewWindowOptionsFollowsHost(t *testing.T) {
 	opts := NewWindowOptions(true)
 
-	if opts.Hidden {
-		t.Fatal("the window must be visible so WKWebView can initialize")
+	if opts.Hidden != (runtime.GOOS == "windows") {
+		t.Fatalf("background startup visibility on %s: hidden = %v", runtime.GOOS, opts.Hidden)
 	}
-	if opts.Width != bubbleWidth || opts.Height != bubbleHeight {
-		t.Fatalf("StartInBubble size = %dx%d, want %dx%d", opts.Width, opts.Height, bubbleWidth, bubbleHeight)
+	if opts.Width != bubbleSize || opts.Height != bubbleSize {
+		t.Fatalf("StartInBubble size = %dx%d, want %dx%d", opts.Width, opts.Height, bubbleSize, bubbleSize)
 	}
 	if opts.BackgroundType != application.BackgroundTypeTransparent {
 		t.Fatalf("background type = %v, want transparent", opts.BackgroundType)
 	}
 	if opts.BackgroundColour != application.NewRGBA(0, 0, 0, 0) {
 		t.Fatalf("background colour = %+v, want fully transparent", opts.BackgroundColour)
+	}
+	if !opts.Windows.HiddenOnTaskbar || !NewWindowOptions(false).Windows.HiddenOnTaskbar {
+		t.Fatal("Windows must omit the taskbar button in both modes")
 	}
 	switch runtime.GOOS {
 	case "darwin":
@@ -35,7 +38,7 @@ func TestNewWindowOptionsFollowsHost(t *testing.T) {
 		}
 	case "windows", "linux":
 		if !opts.Frameless {
-			t.Fatalf("%s must stay frameless so the window can shrink to 92x92", runtime.GOOS)
+			t.Fatalf("%s must stay frameless in bubble mode", runtime.GOOS)
 		}
 	}
 }

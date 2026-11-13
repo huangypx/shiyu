@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/w32"
 	"golang.org/x/sys/windows"
 )
 
@@ -23,6 +25,8 @@ var (
 
 	windowsBackdropOnce sync.Once
 	windowsBackdropKind string
+	bubbleHwnd          w32.HWND
+	mainFrame           uint32
 
 	// bubbleFrame 表示当前停留在浮动模式。Wails 每次收到 WM_ACTIVATE
 	// 都会重扩玻璃边框，窗口过程要靠这个标记决定事后要不要压回 0。
@@ -106,16 +110,27 @@ func installFrameHook(native unsafe.Pointer) {
 	frameHookPrev = setWindowProcOf(hwnd, frameHookProc)
 }
 
-// setBubbleChrome 去掉浮动球窗口的玻璃边框。92px 的窗口里只有一个圆，
-// 1px 的扩框会带出一圈浅色描边和一层变暗的客户区，看起来就是那种
-// 「不知道从哪来的方框」。
+// setBubbleChrome 去掉胶囊外的玻璃边框，并让点击胶囊时焦点留在原输入框。
 func setBubbleChrome(native unsafe.Pointer) {
 	if native == nil {
 		return
 	}
-	installFrameHook(native)
-	bubbleFrame.Store(true)
-	extendGlassFrame(uintptr(native), 0)
+	application.InvokeSync(func() {
+		hwnd := w32.HWND(uintptr(native))
+		installFrameHook(native)
+		bubbleFrame.Store(true)
+		if bubbleHwnd != hwnd {
+			// 系统标题栏的最小宽度会把胶囊撑开，展开主窗口时再恢复原样式。
+			style := uint32(w32.GetWindowLong(hwnd, w32.GWL_STYLE))
+			mainFrame = style & (w32.WS_OVERLAPPEDWINDOW | w32.WS_POPUP)
+			bubbleHwnd = hwnd
+			w32.SetWindowLong(hwnd, w32.GWL_STYLE, style&^w32.WS_OVERLAPPEDWINDOW|w32.WS_POPUP)
+			ext := uint32(w32.GetWindowLong(hwnd, w32.GWL_EXSTYLE))
+			w32.SetWindowLong(hwnd, w32.GWL_EXSTYLE, ext|w32.WS_EX_NOACTIVATE)
+			refreshWindowFrame(hwnd)
+		}
+		extendGlassFrame(uintptr(native), 0)
+	})
 }
 
 // restoreMainChrome 恢复 Wails 的默认玻璃边框：1px 扩框带来 Aero
@@ -124,9 +139,24 @@ func restoreMainChrome(native unsafe.Pointer) {
 	if native == nil {
 		return
 	}
-	installFrameHook(native)
-	bubbleFrame.Store(false)
-	extendGlassFrame(uintptr(native), 1)
+	application.InvokeSync(func() {
+		hwnd := w32.HWND(uintptr(native))
+		installFrameHook(native)
+		bubbleFrame.Store(false)
+		if hwnd == bubbleHwnd {
+			bubbleHwnd = 0
+			style := uint32(w32.GetWindowLong(hwnd, w32.GWL_STYLE))
+			w32.SetWindowLong(hwnd, w32.GWL_STYLE, style&^(w32.WS_OVERLAPPEDWINDOW|w32.WS_POPUP)|mainFrame)
+			ext := uint32(w32.GetWindowLong(hwnd, w32.GWL_EXSTYLE))
+			w32.SetWindowLong(hwnd, w32.GWL_EXSTYLE, ext&^w32.WS_EX_NOACTIVATE)
+			refreshWindowFrame(hwnd)
+		}
+		extendGlassFrame(uintptr(native), 1)
+	})
+}
+
+func refreshWindowFrame(hwnd w32.HWND) {
+	w32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOZORDER|w32.SWP_NOACTIVATE|w32.SWP_FRAMECHANGED)
 }
 
 // platformBackdropKind 报告透明 webview 背后是否有 Mica 背景。

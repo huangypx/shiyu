@@ -48,32 +48,35 @@ func TestEaseInOutCubicStaysInRangeAndMonotonic(t *testing.T) {
 func TestBubbleTargetBoundsUsesSavedPointAndClamps(t *testing.T) {
 	area := application.Rect{X: 100, Y: 50, Width: 1200, Height: 800}
 	saved := point{X: 400, Y: 300}
-	got := bubbleTargetBounds(area, &saved)
-	if got != (application.Rect{X: 400, Y: 300, Width: bubbleWidth, Height: bubbleHeight}) {
+	got := bubbleTargetBounds(area, &saved, bubbleSize, bubbleSize)
+	if got != (application.Rect{X: 400, Y: 300, Width: bubbleSize, Height: bubbleSize}) {
 		t.Fatalf("saved bubble bounds = %+v", got)
 	}
 
 	outside := point{X: 5000, Y: -500}
-	got = bubbleTargetBounds(area, &outside)
+	got = bubbleTargetBounds(area, &outside, bubbleSize, bubbleSize)
 	want := application.Rect{
-		X:      area.X + area.Width - bubbleWidth,
+		X:      area.X + area.Width - bubbleSize,
 		Y:      area.Y,
-		Width:  bubbleWidth,
-		Height: bubbleHeight,
+		Width:  bubbleSize,
+		Height: bubbleSize,
 	}
 	if got != want {
 		t.Fatalf("clamped bubble bounds = %+v, want %+v", got, want)
 	}
 }
 
-func TestBubbleTargetBoundsLeavesRoomForToolbar(t *testing.T) {
-	area := application.Rect{X: 0, Y: 0, Width: 1200, Height: 800}
-	got := bubbleTargetBounds(area, nil)
-	if got.Height != bubbleHeight || got.Height <= bubbleWidth {
-		t.Fatalf("bubble height = %d, want %d with toolbar room", got.Height, bubbleHeight)
-	}
-	if got.Y+got.Height > area.Height {
-		t.Fatalf("default bubble bounds %+v escaped work area %+v", got, area)
+func TestBubbleTargetBoundsCentersRecordingAndResultAboveBottomInset(t *testing.T) {
+	area := application.Rect{X: -1200, Y: 100, Width: 1200, Height: 800}
+	for _, size := range [][2]int{{bubbleSize, bubbleSize}, {150, 56}, {360, 160}} {
+		got := bubbleTargetBounds(area, nil, size[0], size[1])
+		want := application.Rect{
+			X: area.X + (area.Width-size[0])/2, Y: area.Y + area.Height - bubbleBottomInset - size[1],
+			Width: size[0], Height: size[1],
+		}
+		if got != want {
+			t.Fatalf("default bubble bounds = %+v, want %+v", got, want)
+		}
 	}
 }
 

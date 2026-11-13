@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
 
 	"github.com/huangypx/shiyu/backend"
 	"github.com/huangypx/shiyu/desktop"
@@ -14,6 +15,9 @@ import (
 //
 //go:embed all:frontend/dist
 var frontendDist embed.FS
+
+//go:embed build/appicon.png
+var trayIcon []byte
 
 func main() {
 	paths, err := backend.DefaultPaths()
@@ -70,8 +74,14 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(frontendDist),
 		},
+		Windows: application.WindowsOptions{
+			// 登录启动时工作目录不同，WebView 数据统一放进用户可写的数据目录。
+			WebviewUserDataPath: paths.WebviewPath,
+			// 全局快捷键来自桌面，首次录音时音频上下文也应能在没有网页点击时启动。
+			AdditionalBrowserArgs: []string{"--autoplay-policy=no-user-gesture-required"},
+		},
 		Mac: application.MacOptions{
-			// macOS 上点红色交通灯关闭窗口时退出应用，与 v2 行为一致。
+			// 用户选择后台时会拦截关窗；明确退出时允许最后一个窗口结束进程。
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
@@ -82,10 +92,12 @@ func main() {
 		desktopApp.Event.Emit(name, data)
 	})
 
-	window := desktopApp.Window.NewWithOptions(desktop.NewWindowOptions(cfg.StartInBubble))
+	startInBackground := desktop.BackgroundStartup(cfg.StartInBubble, os.Args[1:])
+	window := desktopApp.Window.NewWithOptions(desktop.NewWindowOptions(startInBackground))
 	controller := desktop.NewController(app, desktopApp, window)
 	desktopApp.RegisterService(application.NewService(controller))
 	desktop.RegisterBubbleMenu(desktopApp, controller)
+	desktop.RegisterSystemTray(desktopApp, controller, trayIcon)
 
 	if err := desktopApp.Run(); err != nil {
 		log.Fatalf("start application: %v", err)

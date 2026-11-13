@@ -6,11 +6,40 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * RecordingHotkey 记住按键时的窗口模式和输入框，供录音界面就绪后领取。
+ */
+export class RecordingHotkey {
+    "mode": string;
+    "target": string;
+
+    /** Creates a new RecordingHotkey instance. */
+    constructor($$source: Partial<RecordingHotkey> = {}) {
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("target" in $$source)) {
+            this["target"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingHotkey instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingHotkey {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingHotkey($$parsedSource as Partial<RecordingHotkey>);
+    }
+}
+
+/**
  * State 刻意保持精简且易于 JSON 序列化：原生控制器掌管真实窗口，
  * React 外壳只管自己的视觉状态。
  */
 export class State {
     "mode": string;
+    "closeRequested": boolean;
     "hotkey": string;
     "hotkeyRegistered": boolean;
     "hotkeyReason"?: string;
@@ -30,6 +59,9 @@ export class State {
     constructor($$source: Partial<State> = {}) {
         if (!("mode" in $$source)) {
             this["mode"] = "";
+        }
+        if (!("closeRequested" in $$source)) {
+            this["closeRequested"] = false;
         }
         if (!("hotkey" in $$source)) {
             this["hotkey"] = "";

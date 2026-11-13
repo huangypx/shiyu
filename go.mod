@@ -3,6 +3,7 @@ module github.com/huangypx/shiyu
 go 1.26.0
 
 require (
+	github.com/go-ole/go-ole v1.3.0
 	github.com/wailsapp/wails/v3 v3.1.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.44.3
@@ -12,7 +13,6 @@ require (
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

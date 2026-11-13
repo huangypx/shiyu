@@ -4,9 +4,31 @@ package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fblocks
-#cgo LDFLAGS: -framework Cocoa
+#cgo LDFLAGS: -framework Cocoa -framework ApplicationServices
 #import <Cocoa/Cocoa.h>
+#import <ApplicationServices/ApplicationServices.h>
 #import <dispatch/dispatch.h>
+#import <unistd.h>
+
+static uint64_t otFocusedInput(void) {
+    if (!AXIsProcessTrusted()) return 0;
+    AXUIElementRef system = AXUIElementCreateSystemWide();
+    CFTypeRef focused = NULL;
+    AXError err = AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute, &focused);
+    CFRelease(system);
+    if (err != kAXErrorSuccess || !focused) return 0;
+    AXUIElementRef element = (AXUIElementRef)focused;
+    pid_t pid = 0;
+    Boolean writable = false;
+    uint64_t token = 0;
+    if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid != getpid() &&
+        AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute, &writable) == kAXErrorSuccess &&
+        writable) {
+        token = ((uint64_t)pid << 32) | (uint32_t)CFHash(element);
+    }
+    CFRelease(focused);
+    return token;
+}
 
 // AppKit 必须在主线程上访问。Wails 会在 goroutine 里调用绑定方法，
 // 因此每个入口都先跳回主线程再碰窗口。
@@ -62,10 +84,20 @@ static void otRestoreMainChrome(void *ref) {
 */
 import "C"
 
-import "unsafe"
+import (
+	"strconv"
+	"unsafe"
+)
+
+func focusedInputTarget() string {
+	if target := uint64(C.otFocusedInput()); target != 0 {
+		return strconv.FormatUint(target, 10)
+	}
+	return ""
+}
 
 // setBubbleChrome 把已经存在的 NSWindow 切成 borderless 并关掉阴影。
-// 必须在进入 92x92 浮动模式时调用；native 为 nil 时说明平台窗口
+// 必须在进入浮动模式时调用；native 为 nil 时说明平台窗口
 // 还没创建，等 WindowRuntimeReady 再补一次。
 func setBubbleChrome(native unsafe.Pointer) {
 	C.otSetBubbleChrome(native)

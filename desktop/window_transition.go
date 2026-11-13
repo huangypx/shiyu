@@ -13,9 +13,8 @@ const (
 	transitionShrink = "shrink"
 	transitionExpand = "expand"
 
-	// 收起时必须等主界面先淡出，否则窗口一开始缩小就会触发
-	// 滚动条和响应式重排。展开时先让悬浮球淡出，再把原生窗口
-	// 直接放回主窗口位置；窗口本身不在屏幕上滑动。
+	// 手动收起时先让主界面淡出，以免用户看见缩小过程中的响应式重排。
+	// 展开时主窗口直接回到原位置，前端独立完成淡入。
 	shrinkLeadIn    = 160 * time.Millisecond
 	expandLeadIn    = 160 * time.Millisecond
 	shrinkDuration  = 300 * time.Millisecond
@@ -88,31 +87,21 @@ func interpolateBounds(from, to application.Rect, t float64) application.Rect {
 	}
 }
 
-// bubbleTargetBounds 计算悬浮球窗口的目标矩形。窗口比球本身高，
-// 底部留给悬停工具栏；area 是所在屏幕的工作区，saved 是用户上次
-// 拖到的位置，必须已经确认仍落在某块屏幕上，否则传 nil 走默认
-// 右下角。
-func bubbleTargetBounds(area application.Rect, saved *point) application.Rect {
+// bubbleTargetBounds 让不同宽高的内容共用球心和底边，默认位于屏幕下方中央。
+func bubbleTargetBounds(area application.Rect, saved *point, width, height int) application.Rect {
 	position := point{
-		X: area.X + area.Width - bubbleWidth - bubbleRightInset,
-		Y: area.Y + area.Height - bubbleHeight - bubbleBottomInset,
+		X: area.X + (area.Width-bubbleSize)/2,
+		Y: area.Y + area.Height - bubbleSize - bubbleBottomInset,
 	}
 	if saved != nil {
 		position = *saved
 	}
-	position = clampPoint(position, area)
-	return application.Rect{
-		X:      position.X,
-		Y:      position.Y,
-		Width:  bubbleWidth,
-		Height: bubbleHeight,
-	}
+	return bubbleBounds(position, area, width, height)
 }
 
 // bubbleAnchor 决定收起时水滴贴住悬浮球的哪一侧。球固定在浮动窗
 // 顶部，纵向必须贴顶才能和球重合；横向按球中心与主窗口中心的
-// 左右关系取靠主窗口的一侧。展开不使用锚点，悬浮球原地淡出后
-// 窗口直接回到记忆位置。
+// 左右关系取靠主窗口的一侧。展开时窗口直接回到上次的位置。
 func bubbleAnchor(centerX, referenceX int) string {
 	if centerX > referenceX {
 		return anchorTopRight
@@ -151,6 +140,118 @@ func clampRectToWorkArea(rect, area application.Rect) application.Rect {
 		Y:      clampInt(rect.Y, area.Y, area.Y+area.Height-height),
 		Width:  width,
 		Height: height,
+	}
+}
+
+// SetReduceMotion 同步用户的系统偏好，让原生窗口与网页一起减少动效。
+func (c *Controller) SetReduceMotion(enabled bool) error {
+	c.mu.Lock()
+	c.reduceMotion = enabled
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *Controller) rememberMainBounds(bounds application.Rect) {
+	if bounds.Width >= mainMinWidth && bounds.Height >= mainMinHeight {
+		c.lastMainBounds = bounds
+	}
+}
+
+func (c *Controller) trackMainBounds(_ *application.WindowEvent) {
+	// 程序调整窗口期间会收到相同事件，中间帧不能覆盖用户的位置。
+	if !c.layoutMu.TryLock() {
+		return
+	}
+	defer c.layoutMu.Unlock()
+	c.mu.RLock()
+	main := c.mode == ModeMain && c.shrinkCancel == nil && !c.quitting
+	c.mu.RUnlock()
+	if main && c.window.IsVisible() && !c.window.IsMinimised() {
+		c.rememberMainBounds(c.window.Bounds())
+	}
+}
+
+func (c *Controller) restoreMainTarget() application.Rect {
+	last := c.lastMainBounds
+	if last.Width > 0 {
+		center := point{X: last.X + last.Width/2, Y: last.Y + last.Height/2}
+		if screen := c.screenAt(center); screen != nil {
+			return clampRectToWorkArea(last, screen.WorkArea)
+		}
+	}
+	area := application.Rect{Width: 1440, Height: 900}
+	if screen := c.windowScreen(); screen != nil {
+		area = screen.WorkArea
+	}
+	return clampRectToWorkArea(centeredRect(area, mainWidth, mainHeight), area)
+}
+
+func (c *Controller) emitTransition(direction string, from, to application.Rect, duration time.Duration) {
+	if c.desktop == nil {
+		return
+	}
+	c.desktop.Event.Emit("desktop:transition", transitionEvent{
+		Direction: direction, DurationMs: int(duration.Milliseconds()),
+		Anchor: bubbleAnchor(to.X+to.Width/2, from.X+from.Width/2),
+		From:   boundsFromRect(from), To: boundsFromRect(to),
+	})
+}
+
+// cancelShrinkLocked 在持有 mu 时调用。返回值用于避免把动画中间帧记作主窗口位置。
+func (c *Controller) cancelShrinkLocked() bool {
+	if c.shrinkCancel == nil {
+		return false
+	}
+	close(c.shrinkCancel)
+	c.shrinkCancel = nil
+	return true
+}
+
+// beginShrink 仅由用户手动收起主窗口触发。后台失焦、最小化及录音仍然立即切换。
+func (c *Controller) beginShrink(from, to application.Rect) {
+	c.mu.Lock()
+	if c.quitting || c.closePending {
+		c.mu.Unlock()
+		return
+	}
+	cancel := make(chan struct{})
+	c.shrinkCancel = cancel
+	c.mu.Unlock()
+
+	c.rememberMainBounds(from)
+	c.applyBubbleChrome(c.window)
+	c.window.SetMinSize(0, 0)
+	from = c.window.Bounds()
+	c.emitTransition(transitionShrink, from, to, shrinkDuration)
+	go c.runShrink(from, to, cancel)
+}
+
+func (c *Controller) runShrink(from, to application.Rect, cancel <-chan struct{}) {
+	select {
+	case <-time.After(shrinkLeadIn):
+	case <-cancel:
+		return
+	}
+
+	// 每一帧单独锁定布局，快捷键、关闭和托盘操作可以立即接管窗口。
+	move := func(bounds application.Rect) {
+		c.layoutMu.Lock()
+		defer c.layoutMu.Unlock()
+		select {
+		case <-cancel:
+		default:
+			setNativeWindowBounds(c.window, bounds)
+		}
+	}
+	if !animateWindowBounds(from, to, shrinkDuration, easeInOutCubic, move, cancel) {
+		return
+	}
+	c.layoutMu.Lock()
+	defer c.layoutMu.Unlock()
+	select {
+	case <-cancel:
+	default:
+		_ = c.setModeLocked(ModeBubble)
 	}
 }
 
