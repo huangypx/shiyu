@@ -30,7 +30,7 @@
 - React 18 + Vite + Radix Themes；路由用 `createHashRouter`，因为 assetserver 只有一份 `index.html`，hash 路由在 dev、打包和浏览器预览里行为一致。
 - 按 `app` / `pages` / `features` / `services` / `store` 分层；组件用 zustand 选择器订阅单个字段。
 - `services/bridge.ts` 是唯一与 Wails 绑定的模块，其它模块只调用它；浏览器预览没有 Wails runtime 时回退到 mocks 和 localStorage。
-- 样式分三层：`styles/theme.css` 管语义 token 与字号/动效/布局原始值，`styles/palettes.css` 管内置主题色，`styles/global.css` 只留盒模型与全局焦点；主题色与明暗偏好存在 localStorage 的 `typeless-appearance` 里，不进 Go 配置。
+- 样式分三层：`styles/theme.css` 管语义 token 与字号/动效/布局原始值，`styles/palettes.css` 管内置主题色，`styles/global.css` 只留盒模型与焦点重置；主题色与明暗偏好存在 localStorage 的 `typeless-appearance` 里，不进 Go 配置。
 
 ## 平台差异
 

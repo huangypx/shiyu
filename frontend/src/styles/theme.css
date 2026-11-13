@@ -84,13 +84,10 @@
   --app-border: var(--gray-a5);
   --app-border-strong: var(--gray-a7);
 
-  /* 强调：靛蓝只出现在焦点、链接与选中态 */
+  /* 强调：靛蓝只出现在链接与选中态 */
   --app-accent: var(--indigo-9);
   --app-accent-strong: var(--indigo-11);
   --app-accent-soft: var(--indigo-a3);
-
-  /* 焦点环取 8 号色阶：它作边框时对比足够，又不像 9 号实心强调色那样抢眼。 */
-  --app-focus: var(--indigo-8);
 
   /* 状态 */
   --app-danger: var(--red-9);
@@ -112,7 +109,6 @@
   --app-chip-surface: var(--gray-12);
   --app-chip-ink: var(--gray-1);
   --app-chip-border: rgb(255 255 255 / 94%);
-  --app-chip-focus: var(--indigo-8);
   --app-chip-shadow: 0 6px 16px rgb(15 15 17 / 28%);
   --app-chip-shadow-hover: 0 8px 20px rgb(15 15 17 / 32%);
 
@@ -140,6 +136,19 @@
   /* 卡片只加一层几乎看不见的落影，用于和画布分离；
      深色模式下 black-a2 自然趋近透明，不需要第二套规则。 */
   --app-shadow-card: 0 1px 2px var(--black-a2);
+}
+
+/* 焦点外框：设计上不要任何聚焦轮廓。Radix 的焦点样式几乎都从
+   --focus-8 取色（按钮、卡片、下拉、开关、文本域），把它置成透明
+   比逐个控件写 outline 更稳；输入框另有一组 --text-field-focus-color。
+   置为 transparent 而不是 outline: none，是为了让伪元素上的焦点环
+   （开关 ::before 等）也能一并消掉。 */
+.radix-themes {
+  --focus-8: transparent;
+}
+
+.radix-themes .rt-TextFieldRoot {
+  --text-field-focus-color: transparent;
 }
 
 /* Radix 控件的圆角会随 scaling 一起缩放，90% 下按钮只有 5.4px、

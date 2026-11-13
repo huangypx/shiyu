@@ -61,9 +61,9 @@
   border-color: var(--app-accent-strong);
 }
 
+/* 焦点不再画外框；键盘切换主题色时用底色提示当前停在哪个选项。 */
 .option input:focus-visible + .card {
-  outline: 2px solid var(--app-focus);
-  outline-offset: 2px;
+  background: var(--app-surface-hover);
 }
 
 /* 色板条展示的是「别套主题」的样子，故意不读当前主题的 token：

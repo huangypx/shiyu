@@ -32,10 +32,11 @@ body {
   color: var(--app-ink);
 }
 
-/* 键盘焦点只在真正需要时显示，鼠标点击不画环。 */
+/* 不要焦点外框：输入框、按钮、链接聚焦后都不画轮廓，视觉上更干净。
+   Radix 控件的焦点环在 theme.css 里通过 --focus-8 一并关掉。 */
+:focus,
 :focus-visible {
-  outline: 2px solid var(--app-focus);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* 加载指示器在多个组件里用同一个类名。 */

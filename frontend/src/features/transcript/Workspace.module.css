@@ -137,12 +137,6 @@
   box-shadow: none;
 }
 
-/* 焦点框画在整块正文上太重，改成内侧 1px 描边，键盘可见又不喧宾夺主。 */
-.textarea:focus-within {
-  outline: none;
-  box-shadow: inset 0 0 0 1px var(--app-accent);
-}
-
 .textarea textarea {
   padding: 8px clamp(18px, 3.6vw, 52px) 16px;
   color: var(--app-ink);

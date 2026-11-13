@@ -201,11 +201,6 @@
   color: var(--app-chip-surface);
 }
 
-.toolbarButton:focus-visible {
-  outline: 2px solid var(--app-chip-focus);
-  outline-offset: 1px;
-}
-
 /* 呼吸环始终留有一部分不透明度：截图、开会分屏或用户只是
    扫一眼的时候，也要能看出「麦克风还在准备」。 */
 @keyframes armingPulse {

@@ -82,11 +82,6 @@
   color: var(--app-chip-surface);
 }
 
-.cancel:focus-visible {
-  outline: 2px solid var(--app-chip-focus);
-  outline-offset: 1px;
-}
-
 /* 旋转图标在波形淡出后再淡入，避免两者在圆里重叠的一瞬糊在一起。 */
 .spinner {
   position: absolute;

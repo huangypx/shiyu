@@ -24,7 +24,6 @@ html[data-palette='celadon'] .radix-themes {
   --app-accent: #c3472c;
   --app-accent-strong: #95351f;
   --app-accent-soft: #f1d6c9;
-  --app-focus: #95351f;
   --app-danger: #a92e21;
   --app-danger-soft: #f6dacf;
   --app-danger-border: #d9a08f;
@@ -38,7 +37,6 @@ html[data-palette='celadon'] .radix-themes {
   --app-chip-surface: #0b372f;
   --app-chip-ink: #f8f8f0;
   --app-chip-border: rgb(248 248 240 / 94%);
-  --app-chip-focus: #f8f8f0;
   --app-wave-idle: rgb(248 248 240 / 38%);
   --app-wave-active: rgb(255 249 239 / 92%);
   --app-wave-arming: rgb(248 248 240 / 52%);
@@ -62,7 +60,6 @@ html[data-palette='plum'] .radix-themes {
   --app-accent: #ffba8f;
   --app-accent-strong: #ffceab;
   --app-accent-soft: #684354;
-  --app-focus: #ffceab;
   --app-danger: #ffacaa;
   --app-danger-soft: #683748;
   --app-danger-border: #8c5560;
@@ -76,7 +73,6 @@ html[data-palette='plum'] .radix-themes {
   --app-chip-surface: #ffe7d7;
   --app-chip-ink: #4a2b47;
   --app-chip-border: rgb(74 43 71 / 94%);
-  --app-chip-focus: #4a2b47;
   --app-wave-idle: rgb(74 43 71 / 38%);
   --app-wave-active: rgb(61 37 65 / 85%);
   --app-wave-arming: rgb(74 43 71 / 55%);
@@ -105,7 +101,6 @@ html:is([data-palette='celadon'], [data-palette='plum']) .radix-themes {
   --gray-a5: var(--app-border);
   --gray-a7: var(--app-border-strong);
   --gray-a11: var(--app-ink-soft);
-  --focus-8: var(--app-accent-strong);
   --accent-indicator: var(--app-accent);
   --accent-track: var(--app-accent);
   --accent-9: var(--app-accent);
