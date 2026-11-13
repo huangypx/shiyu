@@ -20,6 +20,9 @@ import (
 const (
 	ModeMain   = "main"
 	ModeBubble = "bubble"
+	// ModeOverlay 是隐藏态按热键叫出的底部胶囊形态，复用同一窗口与
+	// React 树；进出都走无动画路径，且全程不抢焦点（见 overlay.go）。
+	ModeOverlay = "overlay"
 
 	mainWidth     = 1000
 	mainHeight    = 820
@@ -47,6 +50,8 @@ type State struct {
 	KeepBubbleOnTop  bool   `json:"keepBubbleOnTop"`
 	RestoreClipboard bool   `json:"restoreClipboard"`
 	CanInjectText    bool   `json:"canInjectText"`
+	// BubbleHidden 表示悬浮球已隐藏、只剩托盘；设置开关读它判断可见性。
+	BubbleHidden bool `json:"bubbleHidden"`
 	// Platform 和 Backdrop 让 React 外壳选择标题栏尺寸和画布样式；
 	// Backdrop 只是 CSS 提示，不再安装原生材质视图。
 	Platform string `json:"platform"`
@@ -76,6 +81,11 @@ type Controller struct {
 	lastMainBounds    application.Rect
 	hasLastMainBounds bool
 	reduceMotion      bool
+	// tray 是平台装配的系统托盘，Linux 为 nil；sessionStatus 镜像前端
+	// 录音会话状态，overlayHideTimer 在回到 idle 后宽限隐藏胶囊。
+	tray             *tray
+	sessionStatus    string
+	overlayHideTimer *time.Timer
 }
 
 type point struct {
@@ -85,10 +95,11 @@ type point struct {
 
 func NewController(app *backend.App, desktop *application.App, window *application.WebviewWindow) *Controller {
 	return &Controller{
-		app:     app,
-		desktop: desktop,
-		window:  window,
-		mode:    ModeMain,
+		app:           app,
+		desktop:       desktop,
+		window:        window,
+		mode:          ModeMain,
+		sessionStatus: "idle",
 	}
 }
 
@@ -103,6 +114,9 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 	// 其他应用在前台时，浮动球仍然要能响应第一次点击。
 	enableFirstMouseClick()
 	c.refreshHotkey()
+	// 托盘在 ServiceStartup 装配：SystemTray.New() 的原生 run 由 Wails
+	// 推迟到 app.Run 之后，这里创建正合适，绝不手动 Run()。
+	c.tray = newTray(c)
 
 	if c.window != nil {
 		// NativeWindow() 要等平台窗口真正创建后才可用。运行时
@@ -122,6 +136,11 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 			// 启动时屏幕缓存可能还没就绪，等 WebView 运行时准备好后
 			// 再按保存位置放一次浮动球。
 			c.positionBubbleIfNeeded()
+			// WKWebView 不能在 Hidden:true 的窗口上初始化（会白屏），
+			// 隐藏态启动只能等运行时就绪、chrome 与位置落定后再 Hide。
+			if c.app != nil && c.app.GetDesktopConfig().BubbleHidden {
+				c.window.Hide()
+			}
 		})
 	}
 
@@ -130,7 +149,10 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 		if err := c.applyModeImmediately(ModeBubble); err != nil {
 			return err
 		}
-		c.showWindow()
+		// 隐藏态启动不主动显示，避免 RuntimeReady 隐藏前先闪一帧。
+		if !c.app.GetDesktopConfig().BubbleHidden {
+			c.showWindow()
+		}
 	}
 	return nil
 }
@@ -142,10 +164,22 @@ func (c *Controller) ServiceShutdown() error {
 	_ = c.persistBubblePosition()
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.overlayHideTimer != nil {
+		c.overlayHideTimer.Stop()
+		c.overlayHideTimer = nil
+	}
 	if c.hotkey != nil {
 		c.hotkey.Stop()
 		c.hotkey = nil
+	}
+	tray := c.tray
+	c.tray = nil
+	c.mu.Unlock()
+
+	// Destroy 会触发原生同步回调，放在控制器锁外执行，避免与
+	// 回调里可能读取的状态互相等待。
+	if tray != nil {
+		tray.destroy()
 	}
 	return nil
 }
@@ -168,6 +202,7 @@ func (c *Controller) GetState() State {
 		KeepBubbleOnTop:  cfg.KeepBubbleOnTop,
 		RestoreClipboard: cfg.RestoreClipboard,
 		CanInjectText:    canPasteCurrentCursor(),
+		BubbleHidden:     cfg.BubbleHidden,
 		Platform:         runtime.GOOS,
 		Backdrop:         platformBackdropKind(),
 	}
@@ -181,7 +216,7 @@ func (c *Controller) GetState() State {
 }
 
 func (c *Controller) SetMode(mode string) error {
-	if mode != ModeMain && mode != ModeBubble {
+	if mode != ModeMain && mode != ModeBubble && mode != ModeOverlay {
 		return fmt.Errorf("unknown desktop mode %q", mode)
 	}
 	if err := c.ensureRuntime(); err != nil {
@@ -209,7 +244,9 @@ func (c *Controller) SetMode(mode string) error {
 	if transitioning || current == mode {
 		return nil
 	}
-	if reduceMotion {
+	// overlay 进出一律无动画：它复用悬浮球 chrome，且不能与收起/
+	// 展开的 transitioning 状态机抢 frame。
+	if reduceMotion || mode == ModeOverlay {
 		return c.applyModeImmediately(mode)
 	}
 	return c.beginTransition(mode)
@@ -396,10 +433,13 @@ func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
 	// 如果还生效，会在窗口移动到目标位置前先夹一帧。
 	window.SetMaxSize(0, 0)
 	window.SetMinSize(0, 0)
-	if mode == ModeBubble {
+	switch mode {
+	case ModeBubble, ModeOverlay:
+		// 悬浮球与胶囊共用 borderless 透明 chrome；先切 chrome 再落
+		// bounds，styleMask 变化可能改 frame。
 		c.applyBubbleChrome(window)
 		c.setWindowBounds(bounds)
-	} else {
+	default:
 		// 展开时先把透明窗口移到主窗口位置，再恢复 titled chrome；
 		// 反过来会让交通灯在 92px 的球窗位置闪一下。chrome 切换
 		// 可能改 frame，所以最后再落一次 bounds。
@@ -407,11 +447,18 @@ func (c *Controller) applySettledMode(mode string, bounds application.Rect) {
 		c.applyMainChrome(window)
 		c.setWindowBounds(bounds)
 	}
-	if mode == ModeBubble {
+	switch mode {
+	case ModeBubble:
 		window.SetMaxSize(bubbleWidth, bubbleHeight)
 		window.SetMinSize(bubbleWidth, bubbleHeight)
 		window.SetAlwaysOnTop(c.keepBubbleOnTop())
-	} else {
+	case ModeOverlay:
+		window.SetMaxSize(overlayWidth, overlayHeight)
+		window.SetMinSize(overlayWidth, overlayHeight)
+		// 胶囊强制置顶，浮在用户当前应用之上；但绝不 Focus，
+		// 否则自动粘贴会粘回拾语自己（见 overlay.go showOverlay）。
+		window.SetAlwaysOnTop(true)
+	default:
 		window.SetMaxSize(0, 0)
 		window.SetMinSize(mainMinWidth, mainMinHeight)
 		window.SetAlwaysOnTop(false)
@@ -436,6 +483,11 @@ func (c *Controller) applyModeImmediately(mode string) error {
 		return err
 	}
 	window := c.window
+	if mode == ModeOverlay {
+		// 胶囊从隐藏态叫出，不记忆主窗口位置；几何固定底部居中。
+		c.applySettledMode(mode, c.overlayRect())
+		return nil
+	}
 	if mode == ModeBubble {
 		c.mu.RLock()
 		current := c.mode
@@ -540,13 +592,52 @@ func (c *Controller) ShowMainWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
-	// 隐藏状态下展开时，先让窗口以悬浮球形态出现并聚焦，再开始
-	// 长大；否则动画可能在一个不可见的窗口上播放。
-	if !c.window.IsVisible() {
-		c.window.Show()
-		c.applyWindowChrome()
-		c.positionBubbleIfNeeded()
+	// overlay 不参与展开动画：先无动画落到悬浮球形态，再走正常
+	// 展开，避免在胶囊路由上播放收起/展开遮罩。
+	c.mu.RLock()
+	mode := c.mode
+	c.mu.RUnlock()
+	if mode == ModeOverlay {
+		if err := c.applyModeImmediately(ModeBubble); err != nil {
+			return err
+		}
+		c.mu.RLock()
+		mode = c.mode
+		c.mu.RUnlock()
 	}
+	// 从仅托盘态打开主窗口即回到可见形态：清掉隐藏偏好并刷新状态，
+	// 否则托盘菜单的互斥启用与全局热键仍按隐藏态走，和主窗口不一致。
+	if c.app != nil && c.app.GetDesktopConfig().BubbleHidden {
+		if err := c.app.SetBubbleHidden(false); err != nil {
+			return err
+		}
+		c.emitState()
+	}
+	// 托盘菜单点击不会激活应用，窗口还可能最小化或正处在收起/展开
+	// 动画里：先停掉在途动画（否则 SetMode 会因 transitioning 早退，
+	// 窗口停在中间尺寸），再还原最小化——Show/Focus 都不会
+	// deminiaturize，最小化的窗口会一直留在 Dock 里「打不开」。
+	c.cancelTransition()
+	c.window.UnMinimise()
+	// IsVisible 读的是异步 occlusionState，被其他应用盖住或刚隐藏时
+	// 不可靠，不能当作是否需要 Show 的判据；这里无条件 Show，幂等
+	// 且能把窗口带到前台。
+	c.window.Show()
+	if mode == ModeMain {
+		// 已是主窗口形态时 SetMode 会早退，无法修复收起动画被中途
+		// 取消留下的中间尺寸：矩形仍够大就原位重刷 chrome，否则按
+		// 记忆位置恢复，避免把正常隐藏的主窗口重新居中。
+		bounds := c.window.Bounds()
+		if bounds.Width < mainMinWidth || bounds.Height < mainMinHeight {
+			bounds = c.restoreMainTarget()
+		}
+		c.applySettledMode(ModeMain, bounds)
+		return nil
+	}
+	// 悬浮球形态：先以球形态可见并聚焦，再开始长大，否则动画可能
+	// 在一个不可见的窗口上播放。
+	c.applyWindowChrome()
+	c.positionBubbleIfNeeded()
 	c.window.Focus()
 	return c.SetMode(ModeMain)
 }
@@ -666,6 +757,9 @@ func (c *Controller) emitState() {
 	if c.desktop != nil {
 		c.desktop.Event.Emit("desktop:state", c.GetState())
 	}
+	if c.tray != nil {
+		c.tray.syncVisibility()
+	}
 }
 
 func (c *Controller) emitSettings() {
@@ -775,11 +869,25 @@ func (c *Controller) refreshHotkey() {
 			c.targetWindow = target
 			c.mu.Unlock()
 		}
-		if c.window != nil {
-			c.showWindow()
-			c.window.Focus()
+		c.mu.RLock()
+		mode := c.mode
+		c.mu.RUnlock()
+		hidden := c.app.GetDesktopConfig().BubbleHidden
+		switch {
+		case mode == ModeOverlay && c.window != nil && c.window.IsVisible():
+			// 胶囊已在屏上：再按热键只结束录音，不重建窗口、不抢焦点。
+			c.emitHotkey()
+		case hidden:
+			// 隐藏态叫出底部胶囊，绝不 Focus，保住粘贴目标是原前台应用。
+			c.showOverlay()
+			c.emitHotkey()
+		default:
+			if c.window != nil {
+				c.showWindow()
+				c.window.Focus()
+			}
+			c.emitHotkey()
 		}
-		c.emitHotkey()
 	})
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -882,7 +990,7 @@ func (c *Controller) applyWindowChrome() {
 	if window == nil || transitioning {
 		return
 	}
-	if mode == ModeBubble {
+	if mode == ModeBubble || mode == ModeOverlay {
 		c.applyBubbleChrome(window)
 		return
 	}

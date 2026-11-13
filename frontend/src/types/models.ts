@@ -75,7 +75,8 @@ export type DesktopSettings = {
 };
 
 export type DesktopState = {
-  mode: 'main' | 'bubble';
+  // overlay 是隐藏悬浮球后按热键叫出的底部胶囊形态。
+  mode: 'main' | 'bubble' | 'overlay';
   hotkey: string;
   hotkeyRegistered: boolean;
   hotkeyReason?: string;
@@ -83,6 +84,8 @@ export type DesktopState = {
   keepBubbleOnTop: boolean;
   restoreClipboard: boolean;
   canInjectText: boolean;
+  // bubbleHidden 表示只剩托盘：设置开关与托盘菜单都读它判断可见性。
+  bubbleHidden: boolean;
   platform: Platform;
   backdrop: Backdrop;
 };
@@ -216,6 +219,19 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   restoreClipboard: true,
   historyRetentionDays: 0,
 };
+
+// 平台默认热键，与后端 defaultHotkeyFor 保持同一张表。
+// 已保存的配置优先；这里只用于占位提示与浏览器预览。
+export function defaultHotkeyFor(platform: Platform | undefined): string {
+  switch (platform) {
+    case 'darwin':
+      return 'Option+Space';
+    case 'windows':
+      return 'Alt+Space';
+    default:
+      return 'Ctrl+Shift+Space';
+  }
+}
 
 // 当前生效的模型；ID 失效时回落到第一个，与后端规则一致。
 export function activeAsrModel(settings: ModelSettings): AsrModelConfig {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -140,6 +141,11 @@ type DesktopConfig struct {
 	ShowResultPreview bool            `json:"showResultPreview"`
 	RestoreClipboard  bool            `json:"restoreClipboard"`
 	BubblePosition    *BubblePosition `json:"bubblePosition,omitempty"`
+	// BubbleHidden 表示用户选择只保留托盘、隐藏悬浮球，跨重启持久化。
+	// 唯一写入路径是 desktop.Controller.SetBubbleHidden；SaveDesktopConfig
+	// 会像 BubblePosition 一样兜底保留它，设置面板保存不会重置隐藏态。
+	// 用 bool 零值天然兼容旧配置，configVersion 保持 2 不变。
+	BubbleHidden bool `json:"bubbleHidden,omitempty"`
 	// HistoryRetentionDays 为 0 表示永久保留；大于 0 时在启动阶段
 	// 删除更早的记录。用天数而不是条数：SQLite 里按时间裁剪更直观，
 	// 也不依赖用户理解「第 N 条之后会消失」。
@@ -183,7 +189,7 @@ func DefaultConfig() Config {
 			ActivePresetID: defaultActivePresetID,
 		},
 		Desktop: DesktopConfig{
-			Hotkey:               "Ctrl+Shift+Space",
+			Hotkey:               defaultHotkey(),
 			AutoPaste:            true,
 			StartInBubble:        false,
 			KeepBubbleOnTop:      true,
@@ -191,6 +197,27 @@ func DefaultConfig() Config {
 			RestoreClipboard:     true,
 			HistoryRetentionDays: 0,
 		},
+	}
+}
+
+// defaultHotkey 按平台选择全局快捷键默认值。已保存的配置不受
+// 影响：applyDefaults 只在 Hotkey 为空时回填。
+func defaultHotkey() string {
+	return defaultHotkeyFor(runtime.GOOS)
+}
+
+// defaultHotkeyFor 是平台默认热键的唯一真源，前端
+// types/models.ts 的 defaultHotkeyFor 镜像同一张表。
+func defaultHotkeyFor(goos string) string {
+	switch goos {
+	case "darwin":
+		return "Option+Space"
+	case "windows":
+		// Alt+Space 本是系统窗口菜单快捷键，RegisterHotKey 注册
+		// 成功后会全局抢占；被占用时设置页提示改键。
+		return "Alt+Space"
+	default:
+		return "Ctrl+Shift+Space"
 	}
 }
 

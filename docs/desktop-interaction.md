@@ -35,10 +35,11 @@ stateDiagram-v2
 
 主窗口的录音卡与浮动圆圈共用同一条音量订阅 `subscribeMicLevel`（0–1 的归一化电平，从 RMS 经噪声门与起音/回落平滑得到）。音量只通过 CSS 变量 `--mic-level` 写进 DOM，不进入 React 状态，几十赫兹的更新不会触发重渲染。
 
-## 两种窗口模式
+## 三种窗口形态
 
 - **主窗口**：展示一张可翻转的记录卡（原始转写 ⇄ 整理结果）和历史记录。左侧导航固定，只有右侧内容区滚动；顶部是一条 36px 的顶带（macOS 的交通灯就在这一行，Windows/Linux 的窗口按钮落在同一行的右端），右上角的浮动按钮将窗口缩成 92×126 的浮动窗口（顶部 92×92 是圆圈）。侧栏可以用顶带右侧的按钮或 ⌘\（Windows/Linux 显示为 Ctrl+\）收起，收起后顶带左侧变成「展开侧栏 + 新建记录」，交通灯的让位随之转交给顶栏。
 - **浮动模式**：窗口是一个 92×126 的透明方框：顶部 92×92 画圆形按钮，底部 34px 留给悬停时出现的工具栏；窗口本身保持置顶（可关闭）。浮动模式下不会展示模型配置或长文本，避免遮挡当前应用。
+- **底部胶囊（overlay）**：隐藏悬浮球后按全局快捷键出现的第三形态。原生窗口固定 360×72，停在当前屏幕工作区底部居中（下边距 48px），强制置顶、透明、无边框，复用浮动球的 chrome 适配器。窗口内画一枚 320×56 的石墨胶囊：左侧波形、右侧取消按钮；录音结束后胶囊在窗口内用 CSS 收缩成 56×56 的圆并显示旋转图标，原生窗口尺寸不变，避免与收起/展开动画抢 frame。胶囊形态**全程不抢占焦点**：自动粘贴的目标是按下快捷键那一刻的前台应用，overlay 一旦 Focus 就会把粘贴送进自己。进出 overlay 都走无动画路径（`applyModeImmediately`），不发 `desktop:transition`，水滴遮罩不参与。
 
 ### 浮动圆圈的手势
 
@@ -49,7 +50,7 @@ stateDiagram-v2
 | 拖动 | 移动窗口。整个圆圈都可以拖动，位置写入 `desktop.bubblePosition`，重启后还原 |
 | 右键 | 上下文菜单：隐藏悬浮球、退出拾语 |
 
-右键菜单是 Wails v3 的原生 context menu：`desktop/menu.go` 把菜单注册到 `app.ContextMenu`，圆圈的按钮元素通过 CSS 自定义属性 `--custom-contextmenu: bubble-menu` 绑定它。菜单只保留「隐藏悬浮球」「退出拾语」，展开、取消和设置都在悬停工具栏里；菜单在鼠标指针处弹出，由系统处理屏幕边缘翻转、Esc 和点击外部关闭。
+右键菜单是 Wails v3 的原生 context menu：`desktop/menu.go` 把菜单注册到 `app.ContextMenu`，圆圈的按钮元素通过 CSS 自定义属性 `--custom-contextmenu: bubble-menu` 绑定它。菜单只保留「隐藏悬浮球」「退出拾语」，展开、取消和设置都在悬停工具栏里；菜单在鼠标指针处弹出，由系统处理屏幕边缘翻转、Esc 和点击外部关闭。「隐藏悬浮球」是持久化动作：走 `Controller.SetBubbleHidden(true)` 写入 `desktop.bubbleHidden`，重启后仍只剩托盘；Linux 没有托盘实现，该菜单项退回临时 `HideWindow()`，不写配置。
 
 悬停工具栏由 React 绘制，按钮都是普通 HTML 按钮；待录音时显示展开和设置，进入录音/整理后只剩取消。窗口固定 92×126，底部 34px 是透明的工具栏条，悬停时不再改原生窗口尺寸。指针落在某个按钮上时，按钮底色反转为 `--gray-1`、图标变为 `--gray-12`：深色主题是黑底白图标，浅色主题是白底黑图标，当前悬停的是哪一个动作一眼可见。同一 tracking area 在鼠标移动时以约 20Hz 把窗口坐标送进 `window.__shiyuBubblePointer`，页面用 `elementFromPoint` 命中 `[data-bubble-action]` 并加上 `data-hovered`；指针跟踪只在浮动模式开启，主窗口不会收到这些调用。macOS 的 WebKit 只在 key window 里更新 CSS `:hover`，而浮动球通常处在后台；`desktop/hover_darwin.go` 给 WKWebView 挂了一个 `NSTrackingActiveAlways` 的 tracking area，进入/离开时调用 `window.__shiyuBubbleHover(true/false)`，React 只改 shell 上的 `data-hover` 属性，不触发重渲染。工具栏同时接受 `:hover`、`:focus-within` 和 `data-hover`，键盘聚焦到球时也能出现。球下方的工具栏条始终属于窗口，因此会挡住对下层应用的一小块点击；这是固定加高换取稳定悬停的取舍。
 
@@ -68,6 +69,28 @@ macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WK
 收起前的主窗口 frame 只保存在内存里；应用重启后没有记录时回退到当前屏幕居中。`prefers-reduced-motion` 下两条路径都跳过逐帧动画，直接落定。
 
 圆圈的状态只用颜色、图标和尺寸表达：石墨色麦克风表示待录音，麦克风外圈的呼吸环表示正在开启麦克风（此时球体不缩放，说明还没开始收音），红色方块表示录音中且球体会随说话音量放大到最多约 1.12 倍并带一圈音晕，旋转图标表示整理中；完成后按钮会短暂闪光，因为 92px 宽的浮动窗放不下 Toast。静止时球保持 72px，放大后加外圈仍在顶部的 92×92 球区内，不会被窗口边界裁掉；工具栏在球下方，不参与音量缩放。系统开启「减少动态效果」时缩放幅度降到几乎不可见，音量改由音晕透明度表达。
+
+## 托盘与隐藏悬浮球
+
+系统托盘图标常驻：无论悬浮球是否隐藏，macOS 菜单栏与 Windows 右下角都有拾语图标。托盘由 `desktop/tray.go` 在 `ServiceStartup` 里通过 `app.SystemTray.New()` 装配（不手动调用 `Run()`，由 Wails 在应用运行后补跑），退出时 `Destroy()`。因为托盘常驻，关闭主窗口不再退出进程（`ApplicationShouldTerminateAfterLastWindowClosed: false`），退出只走托盘菜单或悬浮球右键菜单的「退出拾语」。
+
+托盘菜单四项：「显示悬浮球」「隐藏悬浮球」（按当前可见性互斥禁用）、「打开主窗口」、分隔、「退出拾语」。左键单击行为按平台区分：macOS 打开菜单（符合菜单栏惯例）；Windows 切换悬浮球显隐（隐藏→恢复到浮动模式并聚焦，可见→持久化隐藏），右键打开菜单。
+
+托盘图标是静态的，录音不换图也不变色：macOS 本身有麦克风使用中指示，其他菜单栏应用也不改图标颜色，Windows 同理（tooltip 恒为「拾语」）。macOS 用系统模板图（`SetTemplateIcon` 加载黑稿 `template.png`），菜单栏深浅与失焦/高亮都由系统自动着色，与邻近图标完全一致；图标只设一次，模板标志粘性无副作用。Windows 用静态中灰图（`idle.png`）。前端仍在会话状态变化时调用 `Controller.SetSessionStatus`，但它只用于回到 `idle` 后安排胶囊隐藏定时器，不再驱动托盘图标。
+
+「隐藏悬浮球」是持久化动作，写入 `desktop.bubbleHidden`（见 `docs/storage.md`），重启后仍只剩托盘。入口有三处：悬浮球右键菜单、托盘菜单、设置页「桌面行为」开关，全部走 `Controller.SetBubbleHidden` 这一条写入路径；`SaveDesktopConfig` 兜底保留该字段，设置页保存其它偏好不会重置隐藏态。若隐藏时会话仍在进行（录音/整理），不整个藏掉窗口，而是切到底部胶囊继续展示波形与取消，结束后由隐藏定时器自动收回仅托盘；空闲时才整体隐藏，从主窗口离开时记住主窗口位置便于之后恢复。恢复入口：托盘菜单「显示悬浮球」、Windows 托盘左键、设置页开关。Linux 没有托盘实现，禁止持久化隐藏（菜单项退回临时 `HideWindow()`），避免隐藏后无从恢复。
+
+启动时 `bubbleHidden=true` 的处理沿用「可见首帧加载」路径：窗口不能以 `Hidden:true` 创建（WKWebView 在隐藏窗口上初始化会得到空白），而是在 `WindowRuntimeReady` 回调里、chrome 与位置落定之后再隐藏。
+
+全局快捷键的触发语义按当前形态分支：
+
+| 当前状态 | 按下全局快捷键 |
+| --- | --- |
+| 悬浮球可见（含主窗口） | 记录粘贴目标 → 显示窗口并聚焦 → 触发录音开关（现有行为） |
+| 悬浮球已隐藏 | 以 overlay 形态显示底部胶囊，**不聚焦** → 触发录音开关 |
+| overlay 已在显示 | 只触发录音开关（录音中=结束，待录音=开始），不动窗口 |
+
+overlay 的录音流程与悬浮球完全共用同一条状态机（`toggleRecording` / `cancelTranscription`），不另起业务逻辑。会话回到 `idle`（完成或取消）且当前仍是 overlay 时，Go 侧启动 400ms 宽限定时器让前端画完成功/失败闪示，回调复核状态后才隐藏窗口回到仅托盘；宽限期内再按快捷键开始新会话会作废定时器。取消只有两条可靠入口：胶囊右侧取消按钮、再按一次快捷键（arming 阶段）；overlay 不抢焦点，键盘事件仍在前台应用，因此不监听 Esc。
 
 ## 取消与流式返回
 
@@ -97,4 +120,12 @@ macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WK
 
 ## 快捷键能力
 
-默认快捷键是 `Ctrl+Shift+Space`，设置面板可修改。桌面端在 Linux X11 上通过可选的 `xbindkeys` 注册全局快捷键；Wayland 或缺少依赖时显示明确原因，并继续支持窗口内快捷键。该降级路径让功能在不同桌面环境下仍然可用，而不会静默吞掉用户按键。
+默认快捷键按平台区分：macOS `Option+Space`、Windows `Alt+Space`、Linux `Ctrl+Shift+Space`；设置面板可修改，已保存的配置不受默认值变更影响。Windows 的 `Alt+Space` 本是系统窗口菜单快捷键，注册成功后会全局抢占它（PowerToys Run 同样如此）；被其它应用占用时注册失败，设置页显示原因并提示改键。
+
+全局注册按平台使用原生适配器（`desktop/hotkey_parse.go` 统一解析键位别名，`ctrl/control`、`option/alt`、`cmd/command/meta/super/win/windows` 等价）：
+
+- **macOS**：Carbon `RegisterEventHotKey` + `InstallEventHandler`（`desktop/hotkey_darwin.go`，cgo）。这是注册热键而不是监听按键事件，**不需要辅助功能或输入监控授权**。事件处理器安装在主线程，回调里另起 goroutine 执行触发逻辑，不阻塞 Carbon 事件派发；改键或退出时同时 `UnregisterEventHotKey` 与 `RemoveEventHandler`，旧键不会残留。
+- **Windows**：`RegisterHotKey` + 专用消息线程（`desktop/hotkey_windows.go`）。注册、`GetMessage` 循环与注销都在同一个 `LockOSThread` 线程上；停止时向该线程投递 `WM_QUIT`，由线程自己注销后退出，跨线程注销会失败并泄漏热键。
+- **Linux X11**：保持可选的 `xbindkeys` 路径；Wayland 或缺少依赖时显示明确原因。
+
+任一平台注册失败都不静默吞掉按键：`desktop:state` 携带 `hotkeyRegistered=false` 与可读原因，前端继续支持窗口内快捷键兜底（窗口聚焦时按同一组合键触发）。隐藏悬浮球后窗口不在前台，兜底路径不可用，因此托盘模式依赖全局注册成功；设置页会明示注册状态。

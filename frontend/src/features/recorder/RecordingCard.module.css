@@ -111,39 +111,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.waveform {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 40px;
-}
-
-.waveform i {
-  width: 2px;
-  height: 100%;
-  border-radius: 2px;
-  background: var(--gray-a5);
-  /* 用缩放而不是高度：缩放不触发重排，几十赫兹的音量更新
-     也不会让卡片抖动。静默时保留一截细线，说明它还在等声音。 */
-  transform: scaleY(0.14);
-  transition: transform 80ms ease-out;
-}
-
-.card[data-state='recording'] .waveform i {
-  background: var(--red-a8);
-  transform: scaleY(calc(0.14 + var(--mic-level) * var(--bar-weight) * 0.9));
-}
-
-.card[data-state='arming'] .waveform i {
-  background: var(--gray-a6);
-  animation: armingBars 1.4s ease-in-out infinite;
-  animation-delay: calc(var(--bar-weight) * 220ms);
-}
-
-.card[data-state='processing'] .waveform i {
-  background: var(--gray-a7);
-}
-
 .meta {
   display: flex;
   align-items: center;
@@ -163,22 +130,6 @@
   100% {
     opacity: 0;
     transform: scale(1.3);
-  }
-}
-
-@keyframes armingBars {
-  0%,
-  100% {
-    transform: scaleY(0.14);
-  }
-  50% {
-    transform: scaleY(0.42);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .card[data-state='recording'] .waveform i {
-    transform: scaleY(calc(0.14 + var(--mic-level) * var(--bar-weight) * 0.5));
   }
 }
 

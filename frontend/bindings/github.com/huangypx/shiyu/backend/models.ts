@@ -354,6 +354,14 @@ export class DesktopConfig {
     "bubblePosition"?: BubblePosition | null;
 
     /**
+     * BubbleHidden 表示用户选择只保留托盘、隐藏悬浮球，跨重启持久化。
+     * 唯一写入路径是 desktop.Controller.SetBubbleHidden；SaveDesktopConfig
+     * 会像 BubblePosition 一样兜底保留它，设置面板保存不会重置隐藏态。
+     * 用 bool 零值天然兼容旧配置，configVersion 保持 2 不变。
+     */
+    "bubbleHidden"?: boolean;
+
+    /**
      * HistoryRetentionDays 为 0 表示永久保留；大于 0 时在启动阶段
      * 删除更早的记录。用天数而不是条数：SQLite 里按时间裁剪更直观，
      * 也不依赖用户理解「第 N 条之后会消失」。

@@ -15,6 +15,7 @@ function initialRuntime(): DesktopState {
     keepBubbleOnTop: DEFAULT_DESKTOP_SETTINGS.keepBubbleOnTop,
     restoreClipboard: DEFAULT_DESKTOP_SETTINGS.restoreClipboard,
     canInjectText: false,
+    bubbleHidden: false,
     platform,
     backdrop: defaultBackdrop(platform),
   };

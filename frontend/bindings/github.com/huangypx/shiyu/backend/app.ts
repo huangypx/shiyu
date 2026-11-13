@@ -243,6 +243,15 @@ export function SetActivePreset(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * SetBubbleHidden 只更新隐藏悬浮球态，是该字段唯一的持久化写入路径。
+ * SaveDesktopConfig 会无条件保留已保存值，设置面板因此改不动它；
+ * 桌面控制器经由此方法落盘，避免与面板保存互相覆盖。
+ */
+export function SetBubbleHidden(hidden: boolean): $CancellablePromise<void> {
+    return $Call.ByID(4126233275, hidden);
+}
+
+/**
  * StartRecording 开启一个内存中的录音会话。
  * 真正的麦克风采集仍在前端（MediaRecorder）完成，
  * 音频块通过 AppendRecordingChunk 送上来。

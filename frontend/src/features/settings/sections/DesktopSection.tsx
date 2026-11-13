@@ -1,7 +1,13 @@
 import { SegmentedControl, Select, TextField } from '@radix-ui/themes';
 
+import { setBubbleHidden } from '@/services/bridge';
+import { detectPlatform } from '@/services/platform';
 import type { Appearance } from '@/store/uiStore';
-import type { DesktopSettings, DesktopState } from '@/types/models';
+import {
+  defaultHotkeyFor,
+  type DesktopSettings,
+  type DesktopState,
+} from '@/types/models';
 
 import styles from '../SettingsDialog.module.css';
 import ToggleRow from './ToggleRow';
@@ -28,6 +34,11 @@ export default function DesktopSection({
         ? '快捷键已注册；未找到系统粘贴工具，结果仍会复制到剪贴板。'
         : desktopState?.hotkeyReason ||
           '桌面端会优先注册全局快捷键，浏览器预览使用窗口内快捷键。';
+  const platform = desktopState?.platform ?? detectPlatform();
+  const hotkeyPlaceholder = defaultHotkeyFor(platform);
+  // 只有 macOS/Windows 有系统托盘；隐藏悬浮球后靠它恢复，无托盘的
+  // 平台禁用开关，否则隐藏后没有任何入口能再叫出界面。
+  const traySupported = platform === 'darwin' || platform === 'windows';
 
   return (
     <div className={styles.form}>
@@ -36,7 +47,7 @@ export default function DesktopSection({
         <TextField.Root
           value={desktop.hotkey}
           onChange={(event) => onDesktopChange({ hotkey: event.target.value })}
-          placeholder="Ctrl+Shift+Space"
+          placeholder={hotkeyPlaceholder}
           aria-label="全局快捷键"
           aria-describedby="hotkey-help"
         />
@@ -66,6 +77,19 @@ export default function DesktopSection({
         onCheckedChange={(checked) =>
           onDesktopChange({ keepBubbleOnTop: checked })
         }
+      />
+      <ToggleRow
+        title="隐藏悬浮球（仅保留托盘）"
+        description={
+          traySupported
+            ? '隐藏后只剩托盘图标，按全局快捷键开始录音'
+            : '当前平台没有系统托盘，隐藏后将无法恢复界面'
+        }
+        checked={desktopState?.bubbleHidden ?? false}
+        onCheckedChange={(checked) => {
+          void setBubbleHidden(checked)?.catch(() => undefined);
+        }}
+        disabled={!traySupported}
       />
       <ToggleRow
         title="粘贴后恢复原剪贴板"

@@ -21,6 +21,8 @@ type UiState = {
   settingsOpen: boolean;
   notice: Notice | null;
   bubbleFlash: 'success' | 'error' | '';
+  // 底部胶囊的圆内闪示：窗口马上消失，不用 Toast，只闪 Check/X。
+  overlayFlash: 'success' | 'error' | '';
   appearance: Appearance;
   openSidebar: () => void;
   closeSidebar: () => void;
@@ -31,12 +33,16 @@ type UiState = {
   notify: (message: string, tone?: NoticeTone) => void;
   dismissNotice: () => void;
   flashBubble: (tone: 'success' | 'error') => void;
+  flashOverlay: (tone: 'success' | 'error') => void;
   setAppearance: (appearance: Appearance) => void;
 };
 
 // 浮动窗口只有 92x92，Toast 会被裁掉，因此提示会退化成
 // 按钮闪烁；主窗口的 Toast 由 Radix Toast 自己管理时长。
 let flashTimer: number | undefined;
+// 胶囊闪示单独计时：它要在宿主隐藏窗口前清掉，残留的勾/叉
+// 才不会漏进下一次叫出胶囊时的 idle 圆。
+let overlayFlashTimer: number | undefined;
 
 export const useUiStore = create<UiState>()((set) => ({
   sidebarOpen: false,
@@ -46,6 +52,7 @@ export const useUiStore = create<UiState>()((set) => ({
   settingsOpen: false,
   notice: null,
   bubbleFlash: '',
+  overlayFlash: '',
   appearance: readStoredObject<{ appearance: Appearance }>(APPEARANCE_KEY, {
     appearance: 'system',
   }).appearance,
@@ -68,6 +75,13 @@ export const useUiStore = create<UiState>()((set) => ({
     window.clearTimeout(flashTimer);
     set({ bubbleFlash: tone });
     flashTimer = window.setTimeout(() => set({ bubbleFlash: '' }), 1400);
+  },
+  flashOverlay: (tone) => {
+    window.clearTimeout(overlayFlashTimer);
+    set({ overlayFlash: tone });
+    // 400ms 与宿主隐藏胶囊的宽限一致：勾/叉在窗口消失前退场，
+    // 隐藏后再叫出胶囊时 idle 圆里不会残留上一次的闪示。
+    overlayFlashTimer = window.setTimeout(() => set({ overlayFlash: '' }), 400);
   },
   setAppearance: (appearance) => {
     writeStored(APPEARANCE_KEY, { appearance });

@@ -194,7 +194,7 @@ tasks:
   # 资源时使用，日常构建消费的是已提交的位图，和 generate:icons 消费
   # appicon.png 是同一种「源 + 产物」关系，构建链路上不需要 SVG 工具。
   generate:brand:
-    summary: 从手写 SVG 重新渲染品牌位图（应用图标、DMG 背景与文件图标、favicon）
+    summary: 从手写 SVG 重新渲染品牌位图（应用图标、DMG 背景与文件图标、favicon、托盘图标）
     dir: build
     sources:
       - "icons/*.svg"
@@ -203,6 +203,8 @@ tasks:
       - "darwin/dmg-file-icon.png"
       - "darwin/dmg-background.png"
       - "../frontend/public/favicon.png"
+      - "../desktop/assets/tray/idle.png"
+      - "../desktop/assets/tray/template.png"
     preconditions:
       - sh: command -v rsvg-convert >/dev/null 2>&1
         msg: "缺少 rsvg-convert：macOS 用 brew install librsvg，Debian 系用 apt install librsvg2-bin。"
@@ -212,6 +214,16 @@ tasks:
       - rsvg-convert -w 1024 -h 1024 icons/dmg-file.svg -o darwin/dmg-file-icon.png
       - rsvg-convert -w 540 -h 380 icons/dmg-background.svg -o darwin/dmg-background.png
       - rsvg-convert -w 64 -h 64 icons/app-icon.svg -o ../frontend/public/favicon.png
+      # 托盘 PNG 必须落在 desktop/ 下：go:embed 不能跨父目录引用 build/icons。
+      # macOS 按菜单栏厚度缩放、Retina 自动取细节，44×44 即可，无需 @1x/@2x。
+      - mkdir -p ../desktop/assets/tray
+      # Windows 任务栏静态中灰图。
+      - rsvg-convert -w 44 -h 44 icons/tray.svg -o ../desktop/assets/tray/idle.png
+      # macOS 菜单栏模板图：同一几何换黑稿，系统按外观与失焦/高亮自动着色，
+      # 与邻近图标完全一致。录音不换图（系统自带麦克风使用中指示）。
+      - sed 's/fill="#8E8E93"/fill="#000000"/g' icons/tray.svg > tray-template.tmp.svg
+      - rsvg-convert -w 44 -h 44 tray-template.tmp.svg -o ../desktop/assets/tray/template.png
+      - rm -f tray-template.tmp.svg
       - |
         # 尺寸错了要等到打包后才发现，比在这里拦住贵得多。
         # sips 只有 macOS 自带；其他平台跳过自检，交给人工核对。
@@ -227,6 +239,8 @@ tasks:
           check 1024x1024 darwin/dmg-file-icon.png
           check 540x380 darwin/dmg-background.png
           check 64x64 ../frontend/public/favicon.png
+          check 44x44 ../desktop/assets/tray/idle.png
+          check 44x44 ../desktop/assets/tray/template.png
         fi
 
   generate:icons:

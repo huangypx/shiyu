@@ -71,8 +71,9 @@ func main() {
 			Handler: application.AssetFileServerFS(frontendDist),
 		},
 		Mac: application.MacOptions{
-			// macOS 上点红色交通灯关闭窗口时退出应用，与 v2 行为一致。
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			// 托盘常驻：关窗或隐藏悬浮球后进程不退出，仍可从菜单栏
+			// 图标恢复；退出只走托盘菜单/控制器的 Quit。
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
 

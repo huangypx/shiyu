@@ -20,6 +20,11 @@ export class State {
     "canInjectText": boolean;
 
     /**
+     * BubbleHidden 表示悬浮球已隐藏、只剩托盘；设置开关读它判断可见性。
+     */
+    "bubbleHidden": boolean;
+
+    /**
      * Platform 和 Backdrop 让 React 外壳选择标题栏尺寸和画布样式；
      * Backdrop 只是 CSS 提示，不再安装原生材质视图。
      */
@@ -48,6 +53,9 @@ export class State {
         }
         if (!("canInjectText" in $$source)) {
             this["canInjectText"] = false;
+        }
+        if (!("bubbleHidden" in $$source)) {
+            this["bubbleHidden"] = false;
         }
         if (!("platform" in $$source)) {
             this["platform"] = "";

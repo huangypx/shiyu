@@ -1,11 +1,12 @@
 import { Badge, Button, IconButton, Tooltip } from '@radix-ui/themes';
 import { LoaderCircle, Mic, RotateCcw, Settings, Square } from 'lucide-react';
-import { type CSSProperties, useRef } from 'react';
+import { useRef } from 'react';
 
 import { useMicLevelVar } from '@/features/recorder/useMicLevel';
 import type { SessionStage } from '@/store/sessionStore';
 
 import styles from './RecordingCard.module.css';
+import Waveform from './Waveform';
 
 type Props = {
   // 开启麦克风与真正录音分开：采集确认之前不能显示录音态。
@@ -23,13 +24,6 @@ type Props = {
   onCancel: () => void;
   onSettings: () => void;
 };
-
-// 每根竖条响应音量的程度不同，中间高、两侧低，
-// 才像一支对着说话人的电平条。
-const BAR_WEIGHTS = [
-  0.4, 0.62, 0.85, 0.55, 0.75, 1, 0.7, 0.5, 0.8, 1, 0.62, 0.85, 0.5, 0.72, 0.95,
-  0.6, 0.42,
-];
 
 export default function RecordingCard({
   isArming,
@@ -154,29 +148,5 @@ export default function RecordingCard({
         </Tooltip>
       </div>
     </section>
-  );
-}
-
-function Waveform({
-  active,
-  processing,
-  arming,
-}: {
-  active: boolean;
-  processing: boolean;
-  arming: boolean;
-}) {
-  return (
-    <div
-      className={styles.waveform}
-      data-active={active || undefined}
-      data-processing={processing || undefined}
-      data-arming={arming || undefined}
-      aria-hidden="true"
-    >
-      {BAR_WEIGHTS.map((weight, index) => (
-        <i key={index} style={{ '--bar-weight': weight } as CSSProperties} />
-      ))}
-    </div>
   );
 }

@@ -3,7 +3,9 @@ import { RouterProvider } from 'react-router-dom';
 
 import BubbleRoute from '@/app/layout/BubbleRoute';
 import { router } from '@/app/router';
+import { useSessionStatusBridge } from '@/app/useSessionStatusBridge';
 import { useCallsStore } from '@/features/calls/callsStore';
+import OverlayRoute from '@/features/desktop/OverlayRoute';
 import { useAppShortcuts } from '@/features/desktop/useAppShortcuts';
 import { useDesktopBridge } from '@/features/desktop/useDesktopBridge';
 import { useGlobalHotkey } from '@/features/desktop/useGlobalHotkey';
@@ -18,6 +20,8 @@ export default function App() {
   const { toggleRecording } = useRecordingActions();
 
   useDesktopBridge();
+  // 会话状态同步给宿主：胶囊隐藏定时器靠它（托盘图标静态），只挂一次。
+  useSessionStatusBridge();
   useAppShortcuts();
   // 快捷键与界面无关：浮动模式下同样要能开始录音。
   const triggerRecording = useCallback(() => {
@@ -37,7 +41,13 @@ export default function App() {
 
   return (
     <>
-      {mode === 'bubble' ? <BubbleRoute /> : <RouterProvider router={router} />}
+      {mode === 'overlay' ? (
+        <OverlayRoute />
+      ) : mode === 'bubble' ? (
+        <BubbleRoute />
+      ) : (
+        <RouterProvider router={router} />
+      )}
       <WindowTransition />
     </>
   );

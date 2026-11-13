@@ -16,6 +16,12 @@ func RegisterBubbleMenu(app *application.App, controller *Controller) {
 
 	menu := app.ContextMenu.New()
 	menu.Add("隐藏悬浮球").OnClick(func(*application.Context) {
+		// 有托盘的平台持久化隐藏态，重启后仍只剩托盘，可经托盘恢复；
+		// Linux 无托盘，隐藏后无从恢复，因此保留临时 Hide 行为。
+		if traySupported() {
+			_ = controller.SetBubbleHidden(true)
+			return
+		}
 		_ = controller.HideWindow()
 	})
 	menu.AddSeparator()

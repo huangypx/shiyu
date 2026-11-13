@@ -1,0 +1,132 @@
+/* 底部胶囊窗口固定 360x72，四周留白给 CSS 阴影（macOS 关掉了原生
+   窗口阴影）。胶囊 320x56 居中，结束/取消后纯靠宽度收缩成 56x56 的
+   圆：高度不变、圆角恒为 28px（高度的一半），胶囊与圆都两端全圆，
+   因此只插值 width 就能顺滑变形，不必再动 border-radius。 */
+.shell {
+  display: grid;
+  place-items: center;
+  width: 360px;
+  height: 72px;
+  background: transparent;
+  /* 音量写在外壳上，波形竖条读同一个 --mic-level，与录音卡一致。 */
+  --mic-level: 0;
+}
+
+.capsule {
+  position: relative;
+  width: 320px;
+  height: 56px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  border-radius: 28px;
+  background: var(--gray-12);
+  color: var(--gray-1);
+  box-shadow: 0 6px 16px rgba(15, 15, 17, 0.28);
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 整理中与闪示都收成圆：宽度从 320 落到 56，圆角不变即成正圆。 */
+.shell[data-state='processing'] .capsule,
+.shell[data-state='idle'] .capsule {
+  width: 56px;
+}
+
+/* 波形与取消钮铺满胶囊；收成圆时整行淡出并退出命中，让位给图标。
+   绝对定位让行内容不撑住胶囊宽度，宽度才能自由收缩。 */
+.row {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 18px;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 120ms ease-out,
+    visibility 0s linear 0s;
+}
+
+.shell[data-state='processing'] .row,
+.shell[data-state='idle'] .row {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* 先淡出再隐身：visibility 延后 120ms，波形的淡出才看得见。 */
+  transition:
+    opacity 120ms ease-out,
+    visibility 0s linear 120ms;
+}
+
+.cancel {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+/* 悬停/聚焦把石墨底反转到按钮上，与浮动球工具栏同一套反馈。 */
+.cancel:hover,
+.cancel:focus-visible {
+  background: var(--gray-1);
+  color: var(--gray-12);
+}
+
+.cancel:focus-visible {
+  outline: 2px solid var(--indigo-8);
+  outline-offset: 1px;
+}
+
+/* 旋转图标在波形淡出后再淡入，避免两者在圆里重叠的一瞬糊在一起。 */
+.spinner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  /* 纯装饰层叠在波形行上方，退出命中，否则透明时也会挡住取消钮。 */
+  pointer-events: none;
+  transition: opacity 160ms ease-out 120ms;
+}
+
+.shell[data-state='processing'] .spinner {
+  opacity: 1;
+}
+
+/* 闪示只在 idle 圆里出现：完成绿勾、取消/失败红叉，靠形状而非
+   仅颜色区分。残留 flash 不会漏进下一次录音的胶囊态。 */
+.flash {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  /* 最顶层装饰，退出命中，透明时也不能挡住下层的取消钮。 */
+  pointer-events: none;
+  transition: opacity 140ms ease-out;
+}
+
+.shell[data-state='idle'][data-flash] .flash {
+  opacity: 1;
+}
+
+.shell[data-flash='success'] .flash {
+  color: var(--jade-11);
+}
+
+.shell[data-flash='error'] .flash {
+  color: var(--red-11);
+}
+
+/* 减少动态效果由 global.css 统一把过渡时长压到近零：宽度变形与
+   淡入淡出直接切换形态，波形呼吸也在同一规则下停摆，功能不变。 */

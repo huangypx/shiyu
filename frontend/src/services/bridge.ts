@@ -506,6 +506,7 @@ export async function loadDesktopState(): Promise<DesktopState | undefined> {
     keepBubbleOnTop: state.keepBubbleOnTop,
     restoreClipboard: state.restoreClipboard,
     canInjectText: state.canInjectText,
+    bubbleHidden: state.bubbleHidden,
     platform: state.platform as Platform,
     backdrop: state.backdrop as Backdrop,
   };
@@ -521,6 +522,18 @@ export function showMainWindow() {
 
 export function hideWindow() {
   return desktopOnly(() => Controller.HideWindow());
+}
+
+// setBubbleHidden 切换并持久化「仅保留托盘」的隐藏态：隐藏后全局
+// 热键叫出底部胶囊，恢复时回到悬浮球。无托盘的平台会拒绝隐藏。
+export function setBubbleHidden(hidden: boolean) {
+  return desktopOnly(() => Controller.SetBubbleHidden(hidden));
+}
+
+// setSessionStatus 把录音会话状态同步给宿主：驱动托盘录音图标，
+// 并在回到 idle 后安排胶囊隐藏。唯一调用点是 useSessionStatusBridge。
+export function setSessionStatus(status: string) {
+  return desktopOnly(() => Controller.SetSessionStatus(status));
 }
 
 export function quitApp() {

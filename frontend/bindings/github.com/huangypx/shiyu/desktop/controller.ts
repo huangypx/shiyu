@@ -90,6 +90,17 @@ export function SaveBubblePosition(): $CancellablePromise<void> {
     return $Call.ByID(1415631218);
 }
 
+/**
+ * SetBubbleHidden 切换「仅保留托盘」的隐藏态并持久化。空闲时隐藏后
+ * 悬浮球与主窗口都不显示，全局热键触发底部胶囊；恢复时回到悬浮球形态。
+ * 若隐藏时会话仍在进行（录音/整理），不整个藏掉窗口，而是切到底部胶囊
+ * 继续展示波形与取消，结束后自动收回仅托盘，保证中途隐藏仍可用。
+ * 无托盘的平台（Linux）拒绝隐藏，否则隐藏后没有任何恢复入口。
+ */
+export function SetBubbleHidden(hidden: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2295690352, hidden);
+}
+
 export function SetMode(mode: string): $CancellablePromise<void> {
     return $Call.ByID(964221665, mode);
 }
@@ -100,6 +111,16 @@ export function SetMode(mode: string): $CancellablePromise<void> {
  */
 export function SetReduceMotion(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(529343266, enabled);
+}
+
+/**
+ * SetSessionStatus 由前端把录音会话状态同步给宿主：回到 idle 后安排
+ * 胶囊隐藏。托盘图标是静态的、不随录音变化（macOS 系统自带麦克风使用
+ * 中指示）。状态白名单与前端 sessionStore 一致，非法值直接拒绝，避免
+ * 定时器被未知状态触发。
+ */
+export function SetSessionStatus(status: string): $CancellablePromise<void> {
+    return $Call.ByID(3276448352, status);
 }
 
 export function ShowMainWindow(): $CancellablePromise<void> {

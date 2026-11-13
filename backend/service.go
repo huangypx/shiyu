@@ -230,12 +230,38 @@ func (a *App) SaveDesktopConfig(cfg DesktopConfig) error {
 	if cfg.BubblePosition == nil {
 		cfg.BubblePosition = a.config.Desktop.BubblePosition
 	}
+	// 隐藏悬浮球态的唯一写入路径是 Controller.SetBubbleHidden，
+	// 设置面板回传的配置不含该字段，这里无条件沿用已保存值，
+	// 否则每次保存桌面偏好都会把隐藏态重置成 false。
+	cfg.BubbleHidden = a.config.Desktop.BubbleHidden
 	updated := a.config
 	updated.Desktop = cfg
 	updated.applyDefaults()
 	if err := updated.Validate(); err != nil {
 		return err
 	}
+	if a.store == nil {
+		return errors.New("config store is not configured")
+	}
+	if err := a.store.Save(updated); err != nil {
+		return err
+	}
+	a.config = updated
+	a.configWarning = a.store.Warning()
+	return nil
+}
+
+// SetBubbleHidden 只更新隐藏悬浮球态，是该字段唯一的持久化写入路径。
+// SaveDesktopConfig 会无条件保留已保存值，设置面板因此改不动它；
+// 桌面控制器经由此方法落盘，避免与面板保存互相覆盖。
+func (a *App) SetBubbleHidden(hidden bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.config.Desktop.BubbleHidden == hidden {
+		return nil
+	}
+	updated := a.config
+	updated.Desktop.BubbleHidden = hidden
 	if a.store == nil {
 		return errors.New("config store is not configured")
 	}
