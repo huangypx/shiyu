@@ -3,26 +3,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import OverlayWindow from './OverlayWindow';
 
-// 音量在真实设备上来自麦克风；测试直接推动订阅回调，断言的是
-// 「电平写进了 CSS 变量」而不是整条音频链路，与浮动球测试一致。
-const mic = vi.hoisted(() => {
-  const listeners = new Set<(level: number) => void>();
+// 音量由 Go 采集器广播；测试直接推动订阅回调，断言的是
+// 「电平写进了 CSS 变量」而不是整条音频链路。
+const bridge = vi.hoisted(() => {
+  let levelListener: ((level: number) => void) | null = null;
   return {
-    subscribeMicLevel: vi.fn((listener: (level: number) => void) => {
+    subscribeDesktopMicLevel: vi.fn((listener: (level: number) => void) => {
+      levelListener = listener;
       listener(0);
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+      return () => {
+        if (levelListener === listener) levelListener = null;
+      };
     }),
-    emit: (level: number) => {
-      for (const listener of listeners) listener(level);
+    emitMicLevel: (level: number) => levelListener?.(level),
+    resetMicLevel: () => {
+      levelListener = null;
     },
-    reset: () => listeners.clear(),
   };
 });
 
-vi.mock('@/services/recorder', () => ({
-  subscribeMicLevel: mic.subscribeMicLevel,
-}));
+vi.mock('@/services/bridge', () => bridge);
 
 type Props = Parameters<typeof OverlayWindow>[0];
 
@@ -46,8 +46,8 @@ function shell() {
 
 describe('OverlayWindow', () => {
   beforeEach(() => {
-    mic.subscribeMicLevel.mockClear();
-    mic.reset();
+    bridge.subscribeDesktopMicLevel.mockClear();
+    bridge.resetMicLevel();
   });
 
   it('开启麦克风时是胶囊态，复用 17 根波形竖条且可取消', () => {
@@ -67,7 +67,7 @@ describe('OverlayWindow', () => {
     // 初始电平来自订阅时的立即回调。
     expect(shell().style.getPropertyValue('--mic-level')).toBe('0.000');
 
-    act(() => mic.emit(0.6));
+    act(() => bridge.emitMicLevel(0.6));
     expect(shell().style.getPropertyValue('--mic-level')).toBe('0.600');
     expect(screen.getByRole('button', { name: '取消这段转写' })).toBeEnabled();
   });
@@ -100,6 +100,6 @@ describe('OverlayWindow', () => {
   it('卸载后退订音量，再推电平不会有任何写操作', () => {
     const { unmount } = renderOverlay({ isRecording: true });
     unmount();
-    expect(() => mic.emit(0.3)).not.toThrow();
+    expect(() => bridge.emitMicLevel(0.3)).not.toThrow();
   });
 });

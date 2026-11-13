@@ -7,27 +7,20 @@ import { useSessionStore } from '@/store/sessionStore';
 import RecordPage from './RecordPage';
 
 vi.mock('@/services/bridge', () => ({
-  startRecording: vi.fn(),
   transcribe: vi.fn(),
   organize: vi.fn(),
+  organizeSession: vi.fn(),
   pasteText: vi.fn(),
   copyText: vi.fn(),
   loadCalls: vi.fn().mockResolvedValue(undefined),
   clearCalls: vi.fn(),
   setActivePreset: vi.fn(),
-  blobToDataUrl: vi.fn(),
   subscribeAsrPartial: vi.fn(() => () => undefined),
   subscribeDesktopMicLevel: vi.fn(() => () => undefined),
   cancelDesktopTranscription: vi.fn(),
   cancelTranscriptionRequest: vi.fn(),
   toggleDesktopRecording: vi.fn(),
   TransferCancelled: class TransferCancelled extends Error {},
-}));
-
-vi.mock('@/services/recorder', () => ({
-  startWavRecording: vi.fn(),
-  // 录音卡订阅音量：测试里只需提供一个可退订的空实现。
-  subscribeMicLevel: vi.fn(() => () => undefined),
 }));
 
 describe('RecordPage', () => {

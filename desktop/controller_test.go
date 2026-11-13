@@ -46,34 +46,51 @@ func TestWindowCommandsRequireStartup(t *testing.T) {
 	}
 }
 
-func TestPublishSessionRejectsUnknownStatus(t *testing.T) {
+func TestPublishSessionRejectsUnknownStage(t *testing.T) {
 	controller := NewController(nil, nil)
-	if err := controller.PublishSession(SessionState{Status: "nope"}); err == nil {
-		t.Fatal("expected unknown session status to be rejected")
+	if err := controller.PublishSession(SessionState{Stage: "nope"}); err == nil {
+		t.Fatal("expected unknown session stage to be rejected")
 	}
 }
 
-func TestPublishSessionIncrementsRevision(t *testing.T) {
+func TestPublishSessionAcceptsIdleDraftEdits(t *testing.T) {
 	controller := NewController(nil, nil)
-	if err := controller.PublishSession(SessionState{Status: "recording"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := controller.PublishSession(SessionState{Status: "processing"}); err != nil {
+	if err := controller.PublishSession(SessionState{
+		Status:     "idle",
+		Transcript: "草稿",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	session := controller.GetSession()
-	if session.Revision != 2 {
-		t.Fatalf("revision = %d, want 2", session.Revision)
+	if session.Status != "idle" || session.Transcript != "草稿" {
+		t.Fatalf("session = %+v", session)
+	}
+	if session.Revision != 1 {
+		t.Fatalf("revision = %d, want 1", session.Revision)
 	}
 	if session.Host != ModeOverlay {
 		t.Fatalf("host = %q, want overlay", session.Host)
 	}
 }
 
-func TestSessionCommandQueueStartsEmpty(t *testing.T) {
+func TestPublishSessionRejectsEditsWhileActive(t *testing.T) {
 	controller := NewController(nil, nil)
-	if commands := controller.TakeSessionCommands(); len(commands) != 0 {
-		t.Fatalf("commands = %+v, want none", commands)
+	controller.publishSessionState(SessionState{Status: "recording"})
+	if err := controller.PublishSession(SessionState{Transcript: "x"}); err == nil {
+		t.Fatal("expected active session edits to be rejected")
+	}
+}
+
+func TestPublishSessionStateIncrementsRevision(t *testing.T) {
+	controller := NewController(nil, nil)
+	controller.publishSessionState(SessionState{Status: "recording"})
+	controller.publishSessionState(SessionState{Status: "processing"})
+	session := controller.GetSession()
+	if session.Revision != 2 {
+		t.Fatalf("revision = %d, want 2", session.Revision)
+	}
+	if session.Host != ModeOverlay {
+		t.Fatalf("host = %q, want overlay", session.Host)
 	}
 }
 

@@ -1,23 +1,15 @@
-import { useEffect } from 'react';
-
 import { useDesktopBridge } from '@/app/useDesktopBridge';
+import { useDesktopNotices } from '@/app/useDesktopNotices';
 import { useSessionBridge } from '@/app/useSessionBridge';
 import OverlayWindow from '@/features/desktop/OverlayWindow';
-import { useRecorderHost } from '@/features/recorder/useRecorderHost';
 import { useRecordingSession } from '@/features/recorder/useRecordingSession';
-import { useSettingsStore } from '@/features/settings/settingsStore';
 import { useUiStore } from '@/store/uiStore';
 
-// 底部胶囊是唯一采集宿主：它运行麦克风与转写流水线，同时把
-// 会话状态写回 Go，供 main/bubble 两个视图渲染。
+// 底部胶囊只是 Go 会话的视图；麦克风和转写都在后端。
 export default function OverlayApp() {
   useDesktopBridge();
   useSessionBridge();
-  useRecorderHost();
-
-  useEffect(() => {
-    void useSettingsStore.getState().hydrate();
-  }, []);
+  useDesktopNotices();
 
   const session = useRecordingSession();
   const flash = useUiStore((state) => state.overlayFlash);

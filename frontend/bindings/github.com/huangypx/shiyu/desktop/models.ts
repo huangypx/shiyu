@@ -10,31 +10,6 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as backend$0 from "../backend/models.js";
 
 /**
- * SessionCommand 是发给 overlay 采集宿主的控制命令。宿主窗口可能
- * 比命令晚挂载，所以先入队，前端就绪后再领取。
- */
-export class SessionCommand {
-    "kind": string;
-
-    /** Creates a new SessionCommand instance. */
-    constructor($$source: Partial<SessionCommand> = {}) {
-        if (!("kind" in $$source)) {
-            this["kind"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SessionCommand instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SessionCommand {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new SessionCommand($$parsedSource as Partial<SessionCommand>);
-    }
-}
-
-/**
  * SessionMetrics 镜像前端 CallMetrics，字段名与现有历史记录一致。
  */
 export class SessionMetrics {
@@ -66,7 +41,7 @@ export class SessionMetrics {
 
 /**
  * SessionState 是所有窗口共享的唯一会话状态。录音中的实时文本由
- * overlay 采集宿主写入，main/bubble 只读；窗口销毁不会带走它。
+ * Go 流水线写入，三个窗口只读；窗口销毁不会带走它。
  */
 export class SessionState {
     "status": string;

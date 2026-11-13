@@ -1,10 +1,10 @@
 # Shiyu / 拾语
 
-一个面向桌面的开源语音输入与文字整理工具。它把语音输入的核心工作流拆成两个可替换的模型服务：浏览器 `MediaRecorder` 捕获语音，ASR 服务转写，OpenAI-compatible 的聊天模型负责整理、提炼和补全标点。配置和历史记录保存在本机，界面使用中性灰画布与石墨主色，跟随系统的浅色/深色外观，主窗口使用各平台原生窗口层（macOS 交通灯与透明标题栏，Windows 11/Linux 无边框自绘标题栏），画布与视觉由 CSS 负责。
+一个面向桌面的开源语音输入与文字整理工具。它把语音输入的核心工作流拆成两个可替换的模型服务：Go 后端通过跨平台音频库直接采集麦克风，ASR 服务转写，OpenAI-compatible 的聊天模型负责整理、提炼和补全标点。配置和历史记录保存在本机，界面使用中性灰画布与石墨主色，跟随系统的浅色/深色外观，主窗口使用各平台原生窗口层（macOS 交通灯与透明标题栏，Windows 11/Linux 无边框自绘标题栏），画布与视觉由 CSS 负责。
 
 ## 功能
 
-- 一键开始/结束录音，支持浏览器预览和 Wails 桌面端。
+- 一键开始/结束录音；桌面端由 Go 原生采集，浏览器预览只展示界面。
 - 多模型：ASR 与 LLM 各自维护一个模型池，可以同时配置便宜模型与强模型，随时切换当前使用的那一台；整理预设还能单独绑定某个 LLM 模型。
 - ASR 与 LLM 分开配置：服务商、模型、接口地址、API key 和语言都可以独立设置。
 - 默认使用 OpenAI-compatible API，也可填写 Groq、Ollama 或自建网关的地址。
@@ -91,7 +91,7 @@ ASR 有两种接口类型：
 | 转写接口（默认） | multipart 上传到 `/audio/transcriptions` | OpenAI、Groq、whisper.cpp 等 Whisper 兼容服务 |
 | 对话接口 | JSON 上传到 `/chat/completions`，音频作为 `input_audio` 片段 | mimo-v2.5-asr 等多模态语音模型 |
 
-转写接口返回 `{ "text": "..." }`，对话接口读取 `choices[0].message.content`。对话接口只接受 wav / mp3，因此应用统一用 Web Audio 采集并写出 16kHz 单声道 WAV（`MediaRecorder` 在 Chromium 上只能出 webm、在 WKWebView 上只能出 mp4，都不被这类接口接受）。
+转写接口返回 `{ "text": "..." }`，对话接口读取 `choices[0].message.content`。对话接口只接受 wav / mp3，因此 Go 后端通过 `malgo`（miniaudio）按 16 kHz 单声道 S16 直接采集，并在收尾时写出 WAV；macOS CoreAudio、Windows WASAPI、Linux ALSA/PulseAudio 都由 miniaudio 统一处理。构建需要 cgo 和各平台的 C 工具链，不能直接交叉编译。
 
 ### 流式返回
 

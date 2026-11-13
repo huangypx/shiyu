@@ -1,6 +1,7 @@
-import { useCallback, useEffect } from 'react';
+import { useEffect } from 'react';
 
 import { useDesktopBridge } from '@/app/useDesktopBridge';
+import { useDesktopNotices } from '@/app/useDesktopNotices';
 import { useSessionBridge } from '@/app/useSessionBridge';
 import BubbleWindow from '@/features/desktop/BubbleWindow';
 import { useGlobalHotkey } from '@/features/desktop/useGlobalHotkey';
@@ -9,10 +10,11 @@ import { useRecordingSession } from '@/features/recorder/useRecordingSession';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import { useUiStore } from '@/store/uiStore';
 
-// 悬浮球是独立窗口，只负责展示会话状态和发命令；麦克风在 overlay。
+// 悬浮球是独立窗口，只负责展示 Go 的会话状态和发命令。
 export default function BubbleApp() {
   useDesktopBridge();
   useSessionBridge();
+  useDesktopNotices();
 
   useEffect(() => {
     void useSettingsStore.getState().hydrate();
@@ -21,10 +23,7 @@ export default function BubbleApp() {
   const session = useRecordingSession();
   const flash = useUiStore((state) => state.bubbleFlash);
   const { expandWindow, openSettingsWindow } = useWindowActions();
-  const trigger = useCallback(() => {
-    session.toggleRecording();
-  }, [session]);
-  useGlobalHotkey(trigger);
+  useGlobalHotkey(session.toggleRecording);
 
   return (
     <BubbleWindow

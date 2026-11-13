@@ -109,8 +109,8 @@ func (c *Controller) bubbleWindowOptions(rect application.Rect) application.Webv
 	return opts
 }
 
-// overlayWindowOptions 构造底部胶囊。它同时是唯一的录音采集宿主
-// 和隐藏态的可见提示；macOS 用非激活 NSPanel，显示时不会抢焦点。
+// overlayWindowOptions 构造底部胶囊。它只是 Go 会话的视图；
+// macOS 用非激活 NSPanel，显示时不会抢焦点。
 func (c *Controller) overlayWindowOptions(rect application.Rect) application.WebviewWindowOptions {
 	opts := application.WebviewWindowOptions{
 		Name:             ModeOverlay,

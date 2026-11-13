@@ -1,51 +1,18 @@
 import { useCallback, useEffect, useMemo } from 'react';
 
 import { useFeedback } from '@/app/useFeedback';
-import { useCallsStore } from '@/features/calls/callsStore';
 import { useSettingsStore } from '@/features/settings/settingsStore';
-import { describeError } from '@/lib/error';
-import { MOCK_METRICS, MOCK_ORGANIZED } from '@/mocks/demo';
 import {
   cancelDesktopTranscription,
-  cancelTranscriptionRequest,
   copyText,
-  loadCalls,
-  organize,
+  organizeSession,
   toggleDesktopRecording,
-  TransferCancelled,
 } from '@/services/bridge';
 import { useSessionStore } from '@/store/sessionStore';
-import type { CallMetrics } from '@/types/models';
 
-import { deliverSessionResult, saveSessionNote } from './sessionPersistence';
-
-// 视图侧只发命令；真正的录音采集在 overlay 宿主窗口里。
-let organizeToken = 0;
-let organizeAbort: AbortController | null = null;
-
-// 失败时要保证面板说的是真话：被拒绝的 Wails Promise 只带消息，
-// 失败记录得从调用日志里读回来。
-function useFailureRecord() {
-  return useCallback(async () => {
-    const records = await loadCalls().catch(() => undefined);
-    const newest = records?.[0];
-    if (!newest) return;
-    const current = useSessionStore.getState().metrics;
-    useSessionStore
-      .getState()
-      .setMetrics(
-        newest.kind === 'asr'
-          ? { ...current, asr: newest }
-          : { ...current, llm: newest },
-      );
-  }, []);
-}
-
-// 只暴露动作：页面需要 toggle/cancel/整理/复制，但不该因为
-// 输入框里的每个字符而重渲染整个路由。
+// 视图只发命令；麦克风采集、转写和整理都在 Go 后端。
 export function useRecordingActions() {
   const feedback = useFeedback();
-  const showFailureRecord = useFailureRecord();
 
   const toggleRecording = useCallback(() => {
     void toggleDesktopRecording()?.catch(() => {
@@ -54,68 +21,13 @@ export function useRecordingActions() {
   }, [feedback]);
 
   const cancelTranscription = useCallback(() => {
-    // 视图自己发起的「重新整理」也要立刻作废，并中断在途请求。
-    organizeToken += 1;
-    organizeAbort?.abort();
-    organizeAbort = null;
     void cancelDesktopTranscription()?.catch(() => undefined);
-    void cancelTranscriptionRequest()?.catch(() => undefined);
   }, []);
 
-  const runOrganize = useCallback(async () => {
-    const session = useSessionStore.getState();
-    if (!session.transcript.trim() || session.status === 'processing') return;
-    session.setStatus('processing');
-    session.setStage('organize');
-    session.setElapsedMs(0);
+  const runOrganize = useCallback(() => {
+    void organizeSession()?.catch(() => undefined);
+  }, []);
 
-    organizeToken += 1;
-    const token = organizeToken;
-    const controller = new AbortController();
-    organizeAbort = controller;
-    try {
-      const outcome = await organize(
-        session.transcript,
-        useSettingsStore.getState().models,
-        controller.signal,
-      );
-      if (token !== organizeToken) return;
-      const latest = useSessionStore.getState();
-      // 新一次录音可能已经在这段时间里开始，过期的结果不能覆盖它。
-      if (latest.status !== 'processing') return;
-
-      const result =
-        outcome === undefined
-          ? MOCK_ORGANIZED
-          : outcome.text.trim() || latest.transcript;
-      const nextMetrics: CallMetrics =
-        outcome === undefined
-          ? MOCK_METRICS
-          : { ...latest.metrics, llm: outcome.call };
-      latest.setMetrics(nextMetrics);
-      latest.setOrganized(
-        useSettingsStore.getState().desktop.showResultPreview ? result : '',
-      );
-      saveSessionNote(latest.transcript, result, nextMetrics);
-      await deliverSessionResult(result, feedback);
-    } catch (error) {
-      if (error instanceof TransferCancelled || token !== organizeToken) return;
-      feedback(`整理失败：${describeError(error)}`, 'error');
-      await showFailureRecord();
-    } finally {
-      if (organizeAbort === controller) organizeAbort = null;
-      void useCallsStore.getState().refresh();
-      if (
-        token === organizeToken &&
-        useSessionStore.getState().status === 'processing'
-      ) {
-        useSessionStore.getState().setStatus('idle');
-        useSessionStore.getState().setStage(null);
-      }
-    }
-  }, [feedback, showFailureRecord]);
-
-  // 切换预设只改「下一次整理用什么」，不自动重跑已有的结果。
   const selectPreset = useCallback((id: string) => {
     void useSettingsStore.getState().selectPreset(id);
   }, []);

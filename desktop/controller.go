@@ -1,6 +1,6 @@
-// Package desktop 负责宿主窗口、全局热键与录音会话编排。它把
-// main/bubble/overlay 当成三个独立窗口：overlay 是唯一的采集
-// 宿主，另外两个只渲染后端会话状态。
+// Package desktop 负责宿主窗口、全局热键与录音会话编排。main、
+// bubble、overlay 是三个独立窗口，麦克风采集与转写流水线都在 Go
+// 内，窗口只渲染会话状态。
 package desktop
 
 import (
@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/huangypx/shiyu/backend"
@@ -20,7 +21,7 @@ import (
 const (
 	// overlayHideGrace 是会话结束后的隐藏宽限：胶囊里的 Check/X
 	// 约 320ms，留 400ms 再销毁窗口，宽限内连按热键可以复用同一个
-	// 采集宿主。
+	// 胶囊。
 	overlayHideGrace = 400 * time.Millisecond
 )
 
@@ -48,7 +49,7 @@ type SessionMetrics struct {
 }
 
 // SessionState 是所有窗口共享的唯一会话状态。录音中的实时文本由
-// overlay 采集宿主写入，main/bubble 只读；窗口销毁不会带走它。
+// Go 流水线写入，三个窗口只读；窗口销毁不会带走它。
 type SessionState struct {
 	Status         string         `json:"status"`
 	Stage          string         `json:"stage,omitempty"`
@@ -60,19 +61,9 @@ type SessionState struct {
 	Host           string         `json:"host,omitempty"`
 }
 
-// SessionCommand 是发给 overlay 采集宿主的控制命令。宿主窗口可能
-// 比命令晚挂载，所以先入队，前端就绪后再领取。
-type SessionCommand struct {
-	Kind string `json:"kind"`
-}
-
-const (
-	sessionCommandToggle = "toggle"
-	sessionCommandCancel = "cancel"
-)
-
 // Controller 持有窗口编排、热键和会话状态。windows 里最多同时存在
-// 一个可见面（main/bubble）和一个 overlay 采集宿主。
+// 一个可见面（main/bubble）和一个 overlay 胶囊；麦克风采集与转写
+// 流水线都在 Go 内，窗口只是视图。
 type Controller struct {
 	app     *backend.App
 	desktop *application.App
@@ -94,11 +85,17 @@ type Controller struct {
 
 	session          SessionState
 	overlayHideTimer *time.Timer
-	// starting 覆盖「命令已发出、宿主还没发布 arming」的窗口期：
-	// 隐藏定时器不能在此时把采集宿主销毁。
-	starting        bool
-	commands        []SessionCommand
-	pendingSettings bool
+	// starting 覆盖「开始录音的命令已发出、状态还没变成 recording」
+	// 的窗口期：隐藏定时器不能在此时把胶囊销毁。
+	starting bool
+	// sessionMu 串行化开始/停止/整理的状态迁移；sessionToken 用原子
+	// 值，音频线程只读它来判断自己的回调是否已经过期。
+	sessionMu        sync.Mutex
+	sessionToken     atomic.Uint64
+	capture          *nativeCapture
+	historyID        string
+	sessionStartedAt time.Time
+	pendingSettings  bool
 
 	hotkey       *hotkeyRegistration
 	reason       string
@@ -129,6 +126,13 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 
 	enableFirstMouseClick()
 	c.refreshHotkey()
+	if c.desktop != nil {
+		// 流式 ASR 的增量文本由 Go 直接写进会话状态，main/bubble
+		// 只消费 desktop:session，不再各自订阅服务商事件。
+		c.desktop.Event.On(backend.EventASRPartial, func(event *application.CustomEvent) {
+			c.handleASRPartial(event.Data)
+		})
+	}
 	// 托盘在 ServiceStartup 装配：SystemTray.New() 的原生 run 由 Wails
 	// 推迟到 app.Run 之后，这里创建正合适，绝不手动 Run()。
 	c.tray = newTray(c)
@@ -153,6 +157,17 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 
 func (c *Controller) ServiceShutdown() error {
 	_ = c.persistBubblePosition()
+
+	c.sessionMu.Lock()
+	capture := c.capture
+	c.capture = nil
+	c.sessionMu.Unlock()
+	if capture != nil {
+		capture.Stop()
+	}
+	if c.app != nil {
+		_, _ = c.app.CancelRecording()
+	}
 
 	c.mu.Lock()
 	if c.overlayHideTimer != nil {
@@ -217,33 +232,49 @@ func (c *Controller) GetSession() SessionState {
 	return c.session
 }
 
-// PublishSession 由采集宿主写入会话状态。revision 由后端递增，
-// 前端据此丢弃乱序事件。
+// PublishSession 只接受空闲时的草稿编辑；录音/整理状态由 Controller
+// 自己写，避免视图窗口把过期状态覆盖回后端。
 func (c *Controller) PublishSession(state SessionState) error {
-	switch state.Status {
-	case "idle", "arming", "recording", "processing":
-	default:
-		return fmt.Errorf("unknown session status %q", state.Status)
-	}
 	switch state.Stage {
 	case "", "transcribe", "organize":
 	default:
 		return fmt.Errorf("unknown session stage %q", state.Stage)
 	}
-
 	c.mu.Lock()
-	c.starting = false
-	state.Host = ModeOverlay
-	state.Revision = c.session.Revision + 1
-	c.session = state
-	c.scheduleOverlayHide(state.Status)
+	if c.session.Status != "idle" {
+		c.mu.Unlock()
+		return errors.New("session is active")
+	}
+	next := c.session
+	next.Stage = state.Stage
+	next.Transcript = state.Transcript
+	next.Organized = state.Organized
+	next.Metrics = state.Metrics
+	next.StageStartedAt = state.StageStartedAt
 	c.mu.Unlock()
-
-	c.emitSession()
+	c.publishSessionState(next)
 	return nil
 }
 
-// scheduleOverlayHide 在会话回到 idle 后安排销毁采集宿主；新会话
+// publishSessionState 写入唯一会话状态并广播；调用方不持有 c.mu。
+func (c *Controller) publishSessionState(state SessionState) {
+	c.mu.Lock()
+	state.Host = ModeOverlay
+	state.Revision = c.session.Revision + 1
+	c.session = state
+	c.starting = false
+	c.scheduleOverlayHide(state.Status)
+	c.mu.Unlock()
+	c.emitSessionState(state)
+}
+
+func (c *Controller) emitSessionState(state SessionState) {
+	if c.desktop != nil {
+		c.desktop.Event.Emit("desktop:session", state)
+	}
+}
+
+// scheduleOverlayHide 在会话回到 idle 后安排隐藏/销毁胶囊；新会话
 // 开始时取消旧定时器。调用方必须持有 c.mu。
 func (c *Controller) scheduleOverlayHide(next string) {
 	if c.overlayHideTimer != nil {
@@ -253,19 +284,28 @@ func (c *Controller) scheduleOverlayHide(next string) {
 	if next != "idle" || c.windows[ModeOverlay] == nil {
 		return
 	}
-	// 即使上一次也是 idle 也要排一次：麦克风启动失败时宿主会直接
+	// 即使上一次也是 idle 也要排一次：麦克风启动失败时会直接
 	// 回到 idle，胶囊必须自己消失，不能停在屏上。
 	c.overlayHideTimer = time.AfterFunc(overlayHideGrace, c.hideOverlayIfIdle)
 }
 
 func (c *Controller) emitSession() {
+	c.emitSessionState(c.GetSession())
+}
+
+// notify 把录音/转写结果以轻量事件发给当前可见窗口；主窗口显示
+// Toast，悬浮球和胶囊退化成闪烁。
+func (c *Controller) notify(message, tone string) {
 	if c.desktop == nil {
 		return
 	}
-	c.desktop.Event.Emit("desktop:session", c.GetSession())
+	c.desktop.Event.Emit("desktop:notice", map[string]string{
+		"message": message,
+		"tone":    tone,
+	})
 }
 
-// PublishMicLevel 把采集宿主的电平广播给可见窗口。波形和球的缩放
+// PublishMicLevel 把 Go 采集器的电平广播给可见窗口。波形和球的缩放
 // 都读这个值，频率约 20Hz，不进 React 状态。
 func (c *Controller) PublishMicLevel(level float64) {
 	if c.desktop == nil {
@@ -280,12 +320,14 @@ func (c *Controller) PublishMicLevel(level float64) {
 	c.desktop.Event.Emit("desktop:mic-level", map[string]float64{"level": level})
 }
 
-// ToggleRecording 是热键和所有视图共用的入口：确保采集宿主存在，
-// 再把 toggle 命令交给它。全程不 Focus 任何窗口。
+// ToggleRecording 是热键和所有视图共用的入口。采集在 Go 内完成，
+// 胶囊只负责显示；全程不 Focus 任何窗口。
 func (c *Controller) ToggleRecording() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
 	}
+	// 先停掉空闲隐藏任务，再显示胶囊。starting 覆盖「胶囊已显示、
+	// 状态还没变成 arming」的窗口期，避免隐藏定时器把它关掉。
 	c.mu.Lock()
 	if c.overlayHideTimer != nil {
 		c.overlayHideTimer.Stop()
@@ -296,7 +338,43 @@ func (c *Controller) ToggleRecording() error {
 	}
 	c.mu.Unlock()
 	c.showOverlayInternal()
-	c.pushCommand(sessionCommandToggle)
+
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	c.mu.RLock()
+	status := c.session.Status
+	c.mu.RUnlock()
+
+	switch status {
+	case "processing":
+		// 整理中不响应开始/结束，避免并发写同一段会话。
+		c.mu.Lock()
+		c.starting = false
+		c.mu.Unlock()
+		return nil
+	case "arming":
+		// 还在打开设备时再按一次就是取消，和旧交互一致。
+		c.mu.Lock()
+		c.starting = false
+		c.mu.Unlock()
+		token := c.sessionToken.Add(1)
+		go c.cancelSession(token)
+	case "recording":
+		c.mu.Lock()
+		c.starting = false
+		c.mu.Unlock()
+		token := c.sessionToken.Add(1)
+		go c.stopSession(token)
+	default:
+		token := c.sessionToken.Add(1)
+		c.mu.Lock()
+		c.historyID = ""
+		c.sessionStartedAt = time.Now()
+		c.starting = true
+		c.mu.Unlock()
+		c.publishSessionState(SessionState{Status: "arming", Host: ModeOverlay})
+		go c.startSession(token)
+	}
 	return nil
 }
 
@@ -311,34 +389,10 @@ func (c *Controller) CancelTranscription() error {
 	if !active && !hasOverlay {
 		return nil
 	}
-	c.mu.Lock()
-	if c.overlayHideTimer != nil {
-		c.overlayHideTimer.Stop()
-		c.overlayHideTimer = nil
-	}
-	c.mu.Unlock()
 	c.showOverlayInternal()
-	c.pushCommand(sessionCommandCancel)
+	token := c.sessionToken.Add(1)
+	go c.cancelSession(token)
 	return nil
-}
-
-func (c *Controller) pushCommand(kind string) {
-	c.mu.Lock()
-	c.commands = append(c.commands, SessionCommand{Kind: kind})
-	c.mu.Unlock()
-	if c.desktop != nil {
-		c.desktop.Event.Emit("desktop:session-command")
-	}
-}
-
-// TakeSessionCommands 让 overlay 挂载时就领取早到的命令，第一次
-// 热键不会因为窗口还没订阅而丢失。
-func (c *Controller) TakeSessionCommands() []SessionCommand {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	commands := c.commands
-	c.commands = nil
-	return commands
 }
 
 // TakeMainCommands 返回主窗口挂载时需要补做的动作。目前只有
@@ -353,7 +407,7 @@ func (c *Controller) TakeMainCommands() []string {
 	return []string{"settings"}
 }
 
-// ShowMainWindow 销毁悬浮球并创建主窗口；overlay 采集宿主不受影响。
+// ShowMainWindow 销毁悬浮球并创建主窗口；录音仍在 Go 内继续。
 func (c *Controller) ShowMainWindow() error {
 	if err := c.ensureRuntime(); err != nil {
 		return err
@@ -392,7 +446,7 @@ func (c *Controller) OpenSettings() error {
 }
 
 // SetBubbleHidden 切换「仅保留托盘」。会话进行中隐藏不会丢录音：
-// overlay 采集宿主保持可见，等 idle 后由隐藏定时器销毁。
+// 胶囊保持可见，等 idle 后由隐藏定时器销毁。
 func (c *Controller) SetBubbleHidden(hidden bool) error {
 	if hidden && !traySupported() {
 		return errors.New("hiding the bubble requires a system tray on this platform")
@@ -410,7 +464,7 @@ func (c *Controller) SetBubbleHidden(hidden bool) error {
 		c.detachAndClose(ModeMain)
 		c.detachAndClose(ModeBubble)
 		if c.sessionActive() {
-			// 录音/整理仍在进行：胶囊作为采集宿主必须继续存在。
+			// 录音/整理仍在进行：胶囊作为可见提示继续存在。
 			c.showOverlayInternal()
 			c.setVisible(ModeOverlay)
 		} else {
@@ -656,8 +710,8 @@ func (c *Controller) showBubbleInternal(focus bool) {
 	c.emitState()
 }
 
-// showOverlayInternal 确保采集宿主存在并显示胶囊。主窗口/悬浮球
-// 可见时它作为辅助录音提示，隐藏态时它就是唯一可见窗口。
+// showOverlayInternal 确保胶囊存在并显示。主窗口/悬浮球可见时它
+// 作为辅助录音提示，隐藏态时它就是唯一可见窗口。
 func (c *Controller) showOverlayInternal() {
 	if c.desktop == nil {
 		return
@@ -786,10 +840,9 @@ func (c *Controller) hideOverlayIfIdle() {
 	status := c.session.Status
 	visible := c.visible
 	starting := c.starting
-	pending := len(c.commands) > 0
 	window := c.windows[ModeOverlay]
 	c.mu.RUnlock()
-	if status != "idle" || starting || pending || window == nil {
+	if status != "idle" || starting || window == nil {
 		return
 	}
 	// 先隐藏，等绑定响应和最后一次状态发布都结束再真正关闭。
@@ -809,7 +862,7 @@ func (c *Controller) hideOverlayIfIdle() {
 
 func (c *Controller) closeOverlayIfIdle() {
 	c.mu.Lock()
-	if c.session.Status != "idle" || c.starting || len(c.commands) > 0 {
+	if c.session.Status != "idle" || c.starting {
 		c.overlayHideTimer = nil
 		c.mu.Unlock()
 		return

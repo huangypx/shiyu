@@ -13,12 +13,12 @@ import TopBar from './TopBar';
 // 顶栏通过 useRecordingActions / useWindowActions 间接依赖桌面桥接，
 // 这里只关心顶部控件的显隐与折叠开关，桥接全部替换成空实现。
 vi.mock('@/services/bridge', () => ({
-  blobToDataUrl: vi.fn(),
   cancelDesktopTranscription: vi.fn(),
   cancelTranscriptionRequest: vi.fn(),
   copyText: vi.fn(),
   loadCalls: vi.fn(),
   organize: vi.fn(),
+  organizeSession: vi.fn(),
   pasteText: vi.fn(),
   subscribeAsrPartial: vi.fn(() => () => undefined),
   subscribeDesktopMicLevel: vi.fn(() => () => undefined),
@@ -33,11 +33,6 @@ vi.mock('@/services/bridge', () => ({
   minimiseWindow: vi.fn(() => Promise.resolve()),
   quitApp: vi.fn(() => Promise.resolve()),
   toggleMaximiseWindow: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock('@/services/recorder', () => ({
-  startWavRecording: vi.fn(),
-  subscribeMicLevel: vi.fn(() => () => undefined),
 }));
 
 function renderTopBar() {

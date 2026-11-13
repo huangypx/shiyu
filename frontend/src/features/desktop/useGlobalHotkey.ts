@@ -4,7 +4,7 @@ import { matchesHotkey } from '@/features/desktop/hotkey';
 import { useSettingsStore } from '@/features/settings/settingsStore';
 import { useDesktopStore } from '@/store/desktopStore';
 
-// 全局热键由 Go 直接注册并驱动采集宿主；这里只保留窗口聚焦时
+// 全局热键由 Go 直接注册并驱动原生采集；这里只保留窗口聚焦时
 // 的键盘兜底，供注册失败或浏览器预览使用。
 export function useGlobalHotkey(onTrigger: () => void) {
   const hotkey = useSettingsStore((state) => state.desktop.hotkey);

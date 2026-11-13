@@ -71,7 +71,7 @@ export default function OverlayWindow({
           <LoaderCircle className="spin" size={26} />
         </div>
 
-        {/* 完成/取消后圆内闪示 Check/X，约 320ms 后由宿主隐藏窗口。
+        {/* 完成/取消后圆内闪示 Check/X，约 320ms 后由 Go 隐藏窗口。
             只在 idle 圆里出现，残留的 flash 不会漏进下一次录音。 */}
         <div className={styles.flash} aria-hidden="true">
           {flash === 'error' ? <X size={26} /> : <Check size={26} />}

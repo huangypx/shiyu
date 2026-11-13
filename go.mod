@@ -3,6 +3,7 @@ module github.com/huangypx/shiyu
 go 1.26.0
 
 require (
+	github.com/gen2brain/malgo v0.11.27
 	github.com/wailsapp/wails/v3 v3.1.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.44.3

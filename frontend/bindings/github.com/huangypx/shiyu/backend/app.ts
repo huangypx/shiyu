@@ -25,6 +25,14 @@ export function AppendRecordingChunk(chunk: $models.AudioChunk): $CancellablePro
 }
 
 /**
+ * AppendRecordingPCM 追加 Go 原生采集的 Int16 LE 单声道 PCM。
+ * 音频回调在音频线程上执行，这里只做一次短时间的追加。
+ */
+export function AppendRecordingPCM(data: string): $CancellablePromise<void> {
+    return $Call.ByID(3456055722, data);
+}
+
+/**
  * AttachHistory 打开历史数据库。它接受路径而不是 *HistoryStore，
  * 这样绑定生成器不会把内部存储类型暴露到 TypeScript；单独成一个
  * 方法也不是塞进构造函数，是因为浏览器预览与部分测试根本没有
@@ -35,9 +43,8 @@ export function AttachHistory(path: string): $CancellablePromise<void> {
 }
 
 /**
- * CancelRecording 丢弃当前内存中的会话。桌面界面用 Web Audio
- * 采集，再把 WAV 交给 TranscribeAudio，因此这是该流程对应的
- * 清理操作。
+ * CancelRecording 丢弃当前内存中的会话。原生采集停止后用它清理
+ * 尚未收尾的缓冲。
  */
 export function CancelRecording(): $CancellablePromise<$models.RecordingStatus> {
     return $Call.ByID(2802257940).then(($result: any) => {
@@ -99,13 +106,22 @@ export function DeleteHistory(id: string): $CancellablePromise<void> {
 }
 
 /**
- * FinalizeRecording 取走当前会话并把 PCM 拼成 16 kHz WAV。
- * 前端拿到 data URL 后再走 TranscribeAudio，这样流式增量文本
- * 仍由前端订阅，音频数据则由后端持有。
+ * FinalizeRecording 返回 WAV 的 data URL，供仍在前端走的转写流程使用。
  */
 export function FinalizeRecording(): $CancellablePromise<$models.RecordingAudio> {
     return $Call.ByID(2358931728).then(($result: any) => {
         return $$createType2($result);
+    });
+}
+
+/**
+ * FinalizeRecordingWAV 取走当前会话并把 PCM 拼成 16 kHz WAV。
+ * Go 原生采集直接拿字节走转写；前端预览仍可用 FinalizeRecording
+ * 拿到 data URL。
+ */
+export function FinalizeRecordingWAV(): $CancellablePromise<string> {
+    return $Call.ByID(1302098286).then(($result: any) => {
+        return $Create.ByteSlice($result);
     });
 }
 
@@ -264,8 +280,8 @@ export function SetBubbleHidden(hidden: boolean): $CancellablePromise<void> {
 
 /**
  * StartRecording 开启一个内存中的录音会话。
- * 真正的麦克风采集仍在前端（Web Audio）完成，Int16 PCM 块通过
- * AppendRecordingChunk 送上来；音频数据由后端持有，窗口销毁不会
+ * 麦克风由 desktop 包用 malgo 原生采集，Int16 PCM 块通过
+ * AppendRecordingPCM 追加；音频数据由后端持有，窗口销毁不会
  * 带走已经采集到的部分。
  */
 export function StartRecording(filename: string, mimeType: string, language: string, prompt: string, sampleRate: number): $CancellablePromise<$models.RecordingStatus> {

@@ -38,6 +38,26 @@ func TestEncodeRecordingWAVRejectsEmptyPCM(t *testing.T) {
 	}
 }
 
+func TestAppendRecordingPCMFinalizesWAV(t *testing.T) {
+	app := &App{}
+	if _, err := app.StartRecording("recording.wav", "audio/wav", "", "", 16000); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.AppendRecordingPCM([]byte{0, 0, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	wav, err := app.FinalizeRecordingWAV()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wav) != 44+4 {
+		t.Fatalf("wav length = %d, want 48", len(wav))
+	}
+	if app.RecordingStatus().Active {
+		t.Fatal("recording remained active after finalize")
+	}
+}
+
 func TestFinalizeRecordingReturnsDataURLAndClearsSession(t *testing.T) {
 	app := &App{}
 	if _, err := app.StartRecording("recording.wav", "audio/wav", "", "", 16000); err != nil {

@@ -26,7 +26,7 @@ import { Controller } from '../../bindings/github.com/huangypx/shiyu/desktop';
 export type CallOutcome = { text: string; call?: CallRecord };
 
 // SessionSnapshot 是 Go 侧会话状态在前端的形状。窗口只读它，
-// 录音宿主负责写入。
+// Go 流水线负责写入。
 export type SessionSnapshot = {
   status: 'idle' | 'arming' | 'recording' | 'processing';
   stage: 'transcribe' | 'organize' | null;
@@ -37,8 +37,6 @@ export type SessionSnapshot = {
   revision: number;
   host?: string;
 };
-
-export type SessionCommandKind = 'toggle' | 'cancel';
 
 type AudioRequest = {
   data: string;
@@ -93,36 +91,6 @@ function isDesktop() {
 function desktopOnly<T>(call: () => T): T | undefined {
   if (!isDesktop()) return undefined;
   return call();
-}
-
-export function isDesktopRuntime() {
-  return isDesktop();
-}
-
-export function startRecording(settings: ModelSettings, sampleRate: number) {
-  // 采集在 overlay 窗口完成，但 PCM 分片由后端持有；收尾时
-  // Go 负责重采样到 16 kHz 并补 WAV 头。
-  return desktopOnly(() =>
-    BackendApp.StartRecording(
-      'recording.wav',
-      'audio/wav',
-      settings.language,
-      '',
-      sampleRate,
-    ),
-  );
-}
-
-export function appendRecordingChunk(data: string) {
-  return desktopOnly(() => BackendApp.AppendRecordingChunk({ data }));
-}
-
-export function finalizeRecording() {
-  return desktopOnly(() => BackendApp.FinalizeRecording());
-}
-
-export function cancelRecording() {
-  return desktopOnly(() => BackendApp.CancelRecording());
 }
 
 function decodeDataURL(value: string) {
@@ -659,15 +627,8 @@ export function cancelDesktopTranscription() {
   return desktopOnly(() => Controller.CancelTranscription());
 }
 
-export async function takeSessionCommands(): Promise<SessionCommandKind[]> {
-  if (!isDesktop()) return [];
-  const commands = await Controller.TakeSessionCommands();
-  return commands
-    .map((command) => command.kind)
-    .filter(
-      (kind): kind is SessionCommandKind =>
-        kind === 'toggle' || kind === 'cancel',
-    );
+export function organizeSession() {
+  return desktopOnly(() => Controller.OrganizeSession());
 }
 
 export async function takeMainCommands(): Promise<string[]> {
@@ -693,9 +654,16 @@ export function subscribeDesktopSession(
   });
 }
 
-export function subscribeDesktopSessionCommand(callback: () => void) {
+export function subscribeDesktopNotice(
+  callback: (message: string, tone: 'success' | 'error') => void,
+) {
   if (!isDesktop()) return () => undefined;
-  return Events.On('desktop:session-command', () => callback());
+  return Events.On('desktop:notice', (event) => {
+    const data = event.data as
+      { message?: unknown; tone?: unknown } | undefined;
+    if (!data || typeof data.message !== 'string') return;
+    callback(data.message, data.tone === 'error' ? 'error' : 'success');
+  });
 }
 
 export function subscribeDesktopMicLevel(callback: (level: number) => void) {
@@ -720,15 +688,5 @@ export function subscribeDesktopState(callback: (state: DesktopState) => void) {
   return Events.On('desktop:state', (event) => {
     const data: unknown = event.data;
     if (data && typeof data === 'object') callback(data as DesktopState);
-  });
-}
-
-export async function blobToDataUrl(blob: Blob) {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () =>
-      resolve(typeof reader.result === 'string' ? reader.result : '');
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
   });
 }

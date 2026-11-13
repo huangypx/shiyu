@@ -595,8 +595,8 @@ func (a *App) ProcessAudio(req AudioRequest, polish bool) (ProcessResult, error)
 }
 
 // StartRecording 开启一个内存中的录音会话。
-// 真正的麦克风采集仍在前端（Web Audio）完成，Int16 PCM 块通过
-// AppendRecordingChunk 送上来；音频数据由后端持有，窗口销毁不会
+// 麦克风由 desktop 包用 malgo 原生采集，Int16 PCM 块通过
+// AppendRecordingPCM 追加；音频数据由后端持有，窗口销毁不会
 // 带走已经采集到的部分。
 func (a *App) StartRecording(
 	filename, mimeType, language, prompt string,
@@ -666,6 +666,21 @@ func (a *App) AppendRecordingChunk(chunk AudioChunk) (RecordingStatus, error) {
 	return a.recording.status(), nil
 }
 
+// AppendRecordingPCM 追加 Go 原生采集的 Int16 LE 单声道 PCM。
+// 音频回调在音频线程上执行，这里只做一次短时间的追加。
+func (a *App) AppendRecordingPCM(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.recording == nil {
+		return errors.New("no active recording")
+	}
+	a.recording.data = append(a.recording.data, data...)
+	return nil
+}
+
 // RecordingAudio 是收尾后的 WAV，Data 直接作为 data URL 交给
 // 前端的转写流程；Bytes 用于诊断分片是否连续。
 type RecordingAudio struct {
@@ -673,20 +688,29 @@ type RecordingAudio struct {
 	Bytes int    `json:"bytes"`
 }
 
-// FinalizeRecording 取走当前会话并把 PCM 拼成 16 kHz WAV。
-// 前端拿到 data URL 后再走 TranscribeAudio，这样流式增量文本
-// 仍由前端订阅，音频数据则由后端持有。
-func (a *App) FinalizeRecording() (RecordingAudio, error) {
+// FinalizeRecordingWAV 取走当前会话并把 PCM 拼成 16 kHz WAV。
+// Go 原生采集直接拿字节走转写；前端预览仍可用 FinalizeRecording
+// 拿到 data URL。
+func (a *App) FinalizeRecordingWAV() ([]byte, error) {
 	a.mu.Lock()
 	current := a.recording
 	a.recording = nil
 	a.mu.Unlock()
 	if current == nil {
-		return RecordingAudio{}, errors.New("no active recording")
+		return nil, errors.New("no active recording")
 	}
 	wav := encodeRecordingWAV(current.data, current.sampleRate)
 	if len(wav) == 0 {
-		return RecordingAudio{}, errors.New("recording is empty")
+		return nil, errors.New("recording is empty")
+	}
+	return wav, nil
+}
+
+// FinalizeRecording 返回 WAV 的 data URL，供仍在前端走的转写流程使用。
+func (a *App) FinalizeRecording() (RecordingAudio, error) {
+	wav, err := a.FinalizeRecordingWAV()
+	if err != nil {
+		return RecordingAudio{}, err
 	}
 	return RecordingAudio{
 		Data:  "data:audio/wav;base64," + base64.StdEncoding.EncodeToString(wav),
@@ -716,9 +740,8 @@ func (a *App) StopRecording(polish bool) (ProcessResult, error) {
 	}, polish)
 }
 
-// CancelRecording 丢弃当前内存中的会话。桌面界面用 Web Audio
-// 采集，再把 WAV 交给 TranscribeAudio，因此这是该流程对应的
-// 清理操作。
+// CancelRecording 丢弃当前内存中的会话。原生采集停止后用它清理
+// 尚未收尾的缓冲。
 func (a *App) CancelRecording() (RecordingStatus, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

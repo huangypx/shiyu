@@ -7,7 +7,6 @@ export {
 };
 
 export {
-    SessionCommand,
     SessionMetrics,
     SessionState,
     State

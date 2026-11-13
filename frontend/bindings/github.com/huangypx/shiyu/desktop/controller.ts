@@ -3,7 +3,8 @@
 
 /**
  * Controller 持有窗口编排、热键和会话状态。windows 里最多同时存在
- * 一个可见面（main/bubble）和一个 overlay 采集宿主。
+ * 一个可见面（main/bubble）和一个 overlay 胶囊；麦克风采集与转写
+ * 流水线都在 Go 内，窗口只是视图。
  * @module
  */
 
@@ -89,6 +90,13 @@ export function OpenSettings(): $CancellablePromise<void> {
 }
 
 /**
+ * OrganizeSession 让 Go 重新整理当前转写，供主窗口的「重新整理」使用。
+ */
+export function OrganizeSession(): $CancellablePromise<void> {
+    return $Call.ByID(1361428473);
+}
+
+/**
  * PasteText 把文本输入到当前应用：先更新剪贴板，再发送粘贴键。
  */
 export function PasteText(text: string): $CancellablePromise<void> {
@@ -96,7 +104,7 @@ export function PasteText(text: string): $CancellablePromise<void> {
 }
 
 /**
- * PublishMicLevel 把采集宿主的电平广播给可见窗口。波形和球的缩放
+ * PublishMicLevel 把 Go 采集器的电平广播给可见窗口。波形和球的缩放
  * 都读这个值，频率约 20Hz，不进 React 状态。
  */
 export function PublishMicLevel(level: number): $CancellablePromise<void> {
@@ -104,8 +112,8 @@ export function PublishMicLevel(level: number): $CancellablePromise<void> {
 }
 
 /**
- * PublishSession 由采集宿主写入会话状态。revision 由后端递增，
- * 前端据此丢弃乱序事件。
+ * PublishSession 只接受空闲时的草稿编辑；录音/整理状态由 Controller
+ * 自己写，避免视图窗口把过期状态覆盖回后端。
  */
 export function PublishSession(state: $models.SessionState): $CancellablePromise<void> {
     return $Call.ByID(1379246387, state);
@@ -143,14 +151,14 @@ export function SaveBubblePosition(): $CancellablePromise<void> {
 
 /**
  * SetBubbleHidden 切换「仅保留托盘」。会话进行中隐藏不会丢录音：
- * overlay 采集宿主保持可见，等 idle 后由隐藏定时器销毁。
+ * 胶囊保持可见，等 idle 后由隐藏定时器销毁。
  */
 export function SetBubbleHidden(hidden: boolean): $CancellablePromise<void> {
     return $Call.ByID(2295690352, hidden);
 }
 
 /**
- * ShowMainWindow 销毁悬浮球并创建主窗口；overlay 采集宿主不受影响。
+ * ShowMainWindow 销毁悬浮球并创建主窗口；录音仍在 Go 内继续。
  */
 export function ShowMainWindow(): $CancellablePromise<void> {
     return $Call.ByID(550490530);
@@ -167,16 +175,6 @@ export function TakeMainCommands(): $CancellablePromise<string[]> {
 }
 
 /**
- * TakeSessionCommands 让 overlay 挂载时就领取早到的命令，第一次
- * 热键不会因为窗口还没订阅而丢失。
- */
-export function TakeSessionCommands(): $CancellablePromise<$models.SessionCommand[]> {
-    return $Call.ByID(388477961).then(($result: any) => {
-        return $$createType4($result);
-    });
-}
-
-/**
  * ToggleMaximiseWindow 支撑 Windows/Linux 的自绘标题栏按钮。
  */
 export function ToggleMaximiseWindow(): $CancellablePromise<void> {
@@ -184,8 +182,8 @@ export function ToggleMaximiseWindow(): $CancellablePromise<void> {
 }
 
 /**
- * ToggleRecording 是热键和所有视图共用的入口：确保采集宿主存在，
- * 再把 toggle 命令交给它。全程不 Focus 任何窗口。
+ * ToggleRecording 是热键和所有视图共用的入口。采集在 Go 内完成，
+ * 胶囊只负责显示；全程不 Focus 任何窗口。
  */
 export function ToggleRecording(): $CancellablePromise<void> {
     return $Call.ByID(418236449);
@@ -195,5 +193,3 @@ export function ToggleRecording(): $CancellablePromise<void> {
 const $$createType0 = $models.SessionState.createFrom;
 const $$createType1 = $models.State.createFrom;
 const $$createType2 = $Create.Array($Create.Any);
-const $$createType3 = $models.SessionCommand.createFrom;
-const $$createType4 = $Create.Array($$createType3);

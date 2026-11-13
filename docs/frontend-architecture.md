@@ -58,22 +58,22 @@ src/
 | `features/history/notesStore` | 历史记录，读写 Go 的 SQLite；浏览器预览回落到 localStorage |
 | `features/calls/callsStore` | 调用日志，来自 Go 的会话内存 |
 
-窗口切换不再有前端动画状态：Go 按角色创建/销毁窗口，前端按 `?view=main|bubble|overlay` 选择入口。`useSessionBridge` 在挂载时调用 `Controller.GetSession()` 并订阅 `desktop:session`；overlay 宿主是唯一写入方，main/bubble 只读。会话状态因此不会随窗口销毁而丢失。
+窗口切换不再有前端动画状态：Go 按角色创建/销毁窗口，前端按 `?view=main|bubble|overlay` 选择入口。`useSessionBridge` 在挂载时调用 `Controller.GetSession()` 并订阅 `desktop:session`；所有会话状态由 Go 流水线写入，三个窗口只读。会话状态因此不会随窗口销毁而丢失。
 
 约定：
 
 - 组件用选择器订阅单个字段，不要订阅整个 store 对象，否则任何字段变化都会重渲染。
 - 异步流程里读最新状态用 `useStore.getState()`，不要依赖闭包里的旧值。
-- 录音器实例只存在于 overlay 宿主窗口；main/bubble 通过 Go 的 `ToggleRecording` / `CancelTranscription` 发命令。
-- 麦克风电平走订阅而不是 store：宿主产生的电平经 `Controller.PublishMicLevel` 广播，组件用 `useMicLevelVar` 写进 CSS 变量 `--mic-level`，避免整棵树按音量重渲染。
-- 状态切换必须等采集确认：`WavRecorder.ready` resolve 之后才允许从 `arming` 进入 `recording`，否则用户会对着还没生效的麦克风说话。
-- 流式转写的增量文本由 overlay 宿主的 `subscribeAsrPartial` 模块级订阅一次，载荷是累计文本，直接覆盖写进 `sessionStore.transcript` 并发布给 Go。
-- 取消用递增的「处理代号」而不是布尔标记：宿主把代号 +1 并 abort 本地 `AbortController`，后端 `CancelTranscription` 负责中断在途 HTTP；每个 `await` 之后核对代号，对不上的结果静默丢弃。
+- 录音、转写和整理全部在 Go 后端；三个视图通过 `ToggleRecording` / `CancelTranscription` / `OrganizeSession` 发命令。
+- 麦克风电平在 Go 的音频回调里算好，经 `desktop:mic-level` 广播，组件用 `useMicLevelVar` 写进 CSS 变量 `--mic-level`，避免整棵树按音量重渲染。
+- 会话状态由 Go 的 `publishSessionState` 写入并广播；前端只在空闲时用 `PublishSession` 提交草稿编辑，录音/整理期间前端写入会被拒绝。
+- 流式转写的增量文本由 Controller 监听 `asr:partial` 并写进唯一会话状态，视图不再直接订阅服务商事件。
+- 取消由 Go 递增会话代号并中断在途 ASR/LLM 请求；音频线程和异步流水线在每个关键点核对代号，过期结果直接丢弃。
 - 记录卡的翻面跟随数据而不是自己记状态：`organized` 有内容就落在「整理结果」一面，被清空（新一次录音、取消、关掉结果预览）就回「原始记录」；用户手动翻面只是一次临时覆盖，下一次数据变化就让它失效。处理中的两段靠 `stage` 区分，界面才能说准是在识别还是在整理。
 
 ## 服务层
 
-`services/bridge.ts` 是唯一与 Wails 绑定的地方，其它模块只调用它导出的函数。它同时负责两件事：把后端事件（`asr:partial`、`desktop:state` 等）转成回调，以及在取消时把等待方从 `await` 里立刻放出来（`raceWithAbort` 抛 `TransferCancelled`）。桌面端导入 Wails v3 CLI 生成的 `frontend/bindings/**`，并用 `window._wails` 判断运行时是否存在；浏览器预览没有该运行时，函数会返回 `undefined` 或退化成 `navigator.clipboard`，调用方负责决定演示数据与降级提示。
+`services/bridge.ts` 是唯一与 Wails 绑定的地方，其它模块只调用它导出的函数。它把后端事件（`desktop:session`、`desktop:notice`、`desktop:mic-level`、`desktop:state` 等）转成回调；`raceWithAbort` 与 `TransferCancelled` 仍保留给需要本地提前结束等待的调用。桌面端导入 Wails v3 CLI 生成的 `frontend/bindings/**`，并用 `window._wails` 判断运行时是否存在；浏览器预览没有该运行时，函数会返回 `undefined` 或退化成 `navigator.clipboard`，调用方负责决定演示数据与降级提示。
 
 ### 持久化
 
