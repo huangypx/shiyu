@@ -801,13 +801,14 @@ func (c *Controller) prepareWindow(role string, window *application.WebviewWindo
 	if role != ModeBubble {
 		return
 	}
-	enableBubbleHoverTracking(window.NativeWindow())
-	setBubbleHoverTrackingEnabled(window.NativeWindow(), true)
 	// macOS 仍需要 cgo 把窗口切成真正 borderless；Windows/Linux 的
 	// 透明无边框由创建选项负责。
 	if runtime.GOOS == "darwin" {
 		setBubbleChrome(window.NativeWindow())
 	}
+	// chrome 落定后再挂 hover：切 styleMask 时 WebView 会短暂换父视图，
+	// 观测者不必跟着经历这段过渡。
+	startBubbleHoverTracking(window.NativeWindow())
 }
 
 // detachAndClose 先摘掉窗口并立即隐藏，稍后才真正 Close。
@@ -826,6 +827,12 @@ func (c *Controller) detachAndClose(role string) {
 
 	if window == nil {
 		return
+	}
+	if role == ModeBubble {
+		// 悬浮球窗口挂着原生 hover 观测者，它按 50ms 定时读 WKWebView。
+		// 窗口一销毁，WebView 与定时器都会失效，必须在窗口还活着时
+		// 解绑，否则下一次轮询就是访问已释放对象（主线程 SIGSEGV）。
+		stopBubbleHoverTracking(window.NativeWindow())
 	}
 	window.Hide()
 	time.AfterFunc(250*time.Millisecond, func() {
