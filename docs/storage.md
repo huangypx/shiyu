@@ -88,6 +88,7 @@ Windows 上 WebView2 的数据目录可以用 `Windows.WebviewUserDataPath` 一�
     "autoPaste": true,
     "startInBubble": false,
     "bubbleHidden": false,
+    "closeAction": "ask",
     "keepBubbleOnTop": true,
     "showResultPreview": true,
     "restoreClipboard": true,
@@ -108,6 +109,7 @@ Windows 上 WebView2 的数据目录可以用 `Windows.WebviewUserDataPath` 一�
 - `presets[].modelId`：预设可绑定某个 LLM 模型；为空表示跟随 `llm.activeId`。绑定的 ID 失效时同样回落到 `activeId`。
 - `desktop.historyRetentionDays`：`0` 表示永久保留；大于 0 时在启动阶段删除更早的记录。
 - `desktop.bubbleHidden`：是否隐藏悬浮球、只保留系统托盘图标。默认 `false`，取默认值时整个键不落盘（`omitempty`），旧配置读到的内容与升级前完全一致；**新增该字段不需要升 `version`**。唯一写入入口是 `Controller.SetBubbleHidden`（右键菜单、托盘菜单、设置开关都走它）；`SaveDesktopConfig` 会像 `bubblePosition` 一样兜底保留服务端当前值，设置页保存不会重置隐藏态。Linux 没有托盘实现，禁止置 `true`，避免隐藏后无从恢复。
+- `desktop.closeAction`：关闭主窗口时的默认行为，`ask`（每次询问，默认）、`background`（收进悬浮球继续运行）或 `quit`（直接退出）。唯一写入入口是关闭确认框的 `Controller.ResolveClose`（勾选「记住本次选择」才落盘），`SaveDesktopConfig` 同样兜底保留；取值沿用旧名 `background`，老配置不需要迁移。
 - `desktop.hotkey`：全局快捷键，默认值按平台区分：macOS `Option+Space`、Windows `Alt+Space`、Linux `Ctrl+Shift+Space`。已保存的配置不受默认值变更影响（只在空值时回填）。Windows 的 `Alt+Space` 本是系统窗口菜单快捷键，`RegisterHotKey` 注册成功后会全局抢占；注册失败时设置页显示原因并提示改键。
 
 ### 凭证

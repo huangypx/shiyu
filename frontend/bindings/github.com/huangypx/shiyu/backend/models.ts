@@ -363,8 +363,9 @@ export class DesktopConfig {
 
     /**
      * CloseAction 决定关闭主窗口时的行为：ask 每次询问、background
-     * 后台运行、quit 直接退出。唯一写入路径是关闭确认框 ResolveClose；
-     * SaveDesktopConfig 会像 BubbleHidden 一样兜底保留，面板保存不重置。
+     * 收进悬浮球继续运行、quit 直接退出。唯一写入路径是关闭确认框
+     * ResolveClose；SaveDesktopConfig 会像 BubbleHidden 一样兜底保留，
+     * 面板保存不重置。
      */
     "closeAction"?: string;
 
