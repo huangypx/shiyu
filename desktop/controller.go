@@ -141,12 +141,12 @@ func (c *Controller) ServiceStartup(_ context.Context, _ application.ServiceOpti
 	if c.app != nil {
 		cfg = c.app.GetDesktopConfig()
 	}
-	switch {
-	case cfg.BubbleHidden:
-		c.mu.Lock()
-		c.visible = ""
-		c.mu.Unlock()
-	case cfg.StartInBubble:
+	switch InitialMode(cfg) {
+	case ModeHidden:
+		// 只留托盘：不建任何窗口，但要记下「当前没有可见面」，
+		// 让 Dock 图标也在启动阶段就收起来。
+		c.setVisible("")
+	case ModeBubble:
 		c.showBubbleInternal(true)
 	default:
 		c.showMainInternal(true)
@@ -1009,10 +1009,14 @@ func (c *Controller) clearBubbleHidden() {
 	}
 }
 
+// setVisible 记录当前可见面，并同步 Dock/任务栏图标：只有主窗口在
+// 时应用才是常规应用。所有窗口切换都必须经过这里，否则 Dock 状态会
+// 和真实可见面脱节。
 func (c *Controller) setVisible(role string) {
 	c.mu.Lock()
 	c.visible = role
 	c.mu.Unlock()
+	c.syncDockIcon(role)
 }
 
 func (c *Controller) current(role string) *application.WebviewWindow {

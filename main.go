@@ -59,6 +59,15 @@ func main() {
 		log.Printf("pruned %d history records older than %d days", removed, cfg.HistoryRetentionDays)
 	}
 
+	// Dock 图标只在主窗口作为可见面时存在：从悬浮球或只留托盘启动时，
+	// 应用在后台常驻，不该先出现在 Dock 里。Wails 要到启动回调里才
+	// 应用这个选项，留空（Regular）会把 ServiceStartup 里刚切好的
+	// 策略顶回去，还会额外抢一次焦点。
+	activationPolicy := application.ActivationPolicyRegular
+	if desktop.InitialMode(cfg) != desktop.ModeMain {
+		activationPolicy = application.ActivationPolicyAccessory
+	}
+
 	// Wails v3 的应用实例是唯一内核：main/bubble/overlay 都是它
 	// 下面的独立窗口，由控制器按需创建和销毁。
 	desktopApp := application.New(application.Options{
@@ -70,6 +79,7 @@ func main() {
 			Handler: application.AssetFileServerFS(frontendDist),
 		},
 		Mac: application.MacOptions{
+			ActivationPolicy: activationPolicy,
 			// 托盘常驻：关窗或隐藏悬浮球后进程不退出，仍可从菜单栏
 			// 图标恢复；退出只走托盘菜单/控制器的 Quit。
 			ApplicationShouldTerminateAfterLastWindowClosed: false,

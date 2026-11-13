@@ -76,6 +76,8 @@ macOS 上还额外放行了「首击」：`desktop/firstmouse_darwin.go` 给 `WK
 
 托盘菜单四项：「显示悬浮球」「隐藏悬浮球」（按当前可见性互斥禁用）、「打开主窗口」、分隔、「退出拾语」。左键单击行为按平台区分：macOS 打开菜单（符合菜单栏惯例）；Windows 切换悬浮球显隐（隐藏→恢复到浮动模式并聚焦，可见→持久化隐藏），右键打开菜单。
 
+关闭主窗口后应用从 Dock 与任务栏消失：macOS 把激活策略切成 `NSApplicationActivationPolicyAccessory`（`desktop/dock_darwin.go`），Dock 图标、菜单栏应用菜单和 ⌘Tab 条目一起收走；主窗口重新出现前先恢复 `Regular` 再 `Show`/`Focus`，图标随之回来。启动时的策略由 `main.go` 按 `desktop.InitialMode` 预先选好，避免先以常规应用启动再收回去（那样还会白抢一次焦点）。Windows 不额外调 Win32：主窗口走 `Hide()` + `Close()` 真销毁，任务栏按钮自己消失，悬浮球和胶囊本来就在创建时挂 `HiddenOnTaskbar`。只剩托盘或悬浮球时，恢复入口因此只剩托盘菜单与悬浮球的「展开主窗口」。
+
 关闭主窗口（macOS 红绿灯或 Windows/Linux 自绘关闭键）默认弹确认框：标题「关闭拾语」，正文说明会收进悬浮球继续运行，按钮是「直接退出」与「收进悬浮球」，勾选「记住本次选择」和两枚按钮排在同一行。勾选后写回 `desktop.closeAction`（`background` 即收进悬浮球，取值沿用旧名，老配置不需要迁移），之后不再询问。选「收进悬浮球」走 `EnterBubble`：即使之前把球藏进了托盘也会重新显示并把 `bubbleHidden` 清掉——文案与结果一致，不去猜用户其实想留在托盘。
 
 托盘图标是静态的，录音不换图也不变色：macOS 本身有麦克风使用中指示，其他菜单栏应用也不改图标颜色，Windows 同理（tooltip 恒为「拾语」）。macOS 用系统模板图（`SetTemplateIcon` 加载黑稿 `template.png`），菜单栏深浅与失焦/高亮都由系统自动着色，与邻近图标完全一致；图标只设一次，模板标志粘性无副作用。Windows 用静态中灰图（`idle.png`）。Go 在 `startSession` / `stopSession` 里写唯一会话状态、广播给所有窗口，并在回到 `idle` 后安排隐藏并销毁胶囊。前端只在空闲时提交草稿编辑。

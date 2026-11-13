@@ -141,4 +141,9 @@ func TestMainWindowOptionsKeepTitledChromeOnMac(t *testing.T) {
 	} else if !opts.Frameless {
 		t.Fatalf("%s main window must be frameless", runtime.GOOS)
 	}
+	// 主窗口开着时必须在任务栏里：隐藏图标只在窗口销毁后由系统自然
+	// 完成，不能给主窗口也挂 WS_EX_TOOLWINDOW。
+	if runtime.GOOS == "windows" && opts.Windows.HiddenOnTaskbar {
+		t.Fatal("main window must stay in the Windows taskbar while it is open")
+	}
 }
