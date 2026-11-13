@@ -223,15 +223,24 @@ func (a *App) GetDesktopConfig() DesktopConfig {
 // SaveDesktopConfig 只更新桌面偏好，同时保留已配置的
 // ASR 与 LLM 模型。
 func (a *App) SaveDesktopConfig(cfg DesktopConfig) error {
+	return UpdateDesktopConfig(a, func(current *DesktopConfig) {
+		if cfg.BubblePosition == nil {
+			cfg.BubblePosition = current.BubblePosition
+		}
+		if cfg.CloseAction == "" {
+			cfg.CloseAction = current.CloseAction
+		}
+		*current = cfg
+	})
+}
+
+// UpdateDesktopConfig 由宿主在同一把锁下修改单项偏好，避免拖动位置覆盖刚保存的关闭选择。
+func UpdateDesktopConfig(a *App, update func(*DesktopConfig)) error {
+	a.maybeReload()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	// 设置面板不掌管浮动圆圈位置；面板回传的配置里没有坐标时
-	// 保留已保存的坐标。
-	if cfg.BubblePosition == nil {
-		cfg.BubblePosition = a.config.Desktop.BubblePosition
-	}
 	updated := a.config
-	updated.Desktop = cfg
+	update(&updated.Desktop)
 	updated.applyDefaults()
 	if err := updated.Validate(); err != nil {
 		return err
@@ -250,9 +259,12 @@ func (a *App) SaveDesktopConfig(cfg DesktopConfig) error {
 func (a *App) SaveConfig(cfg Config) error {
 	// 旧客户端只发送 ASR/LLM 字段。这种情况下保留桌面偏好，
 	// 而不是悄悄把用户的窗口行为重置掉。
-	a.mu.RLock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if strings.TrimSpace(cfg.Desktop.Hotkey) == "" && cfg.Desktop.HistoryRetentionDays == 0 {
 		cfg.Desktop = a.config.Desktop
+	} else if cfg.Desktop.CloseAction == "" {
+		cfg.Desktop.CloseAction = a.config.Desktop.CloseAction
 	}
 	// 老客户端只发送 ASR/LLM 字段，JSON 里没有 presets（nil）；
 	// 直接 applyDefaults 会把它当成空配置补回内置预设，从而清掉
@@ -263,7 +275,6 @@ func (a *App) SaveConfig(cfg Config) error {
 	} else if len(cfg.LLM.Presets) == 0 {
 		// 显式清空预设会让后续整理没有提示词可用；这里宁可报错，
 		// 也不能悄悄用内置预设覆盖用户写过的内容。
-		a.mu.RUnlock()
 		return errors.New("at least one polish preset is required")
 	}
 	// 模型列表同理：nil 表示调用方没带这一块，不是要删光模型。
@@ -275,13 +286,10 @@ func (a *App) SaveConfig(cfg Config) error {
 		cfg.LLM.Models = cloneLLMModels(a.config.LLM.Models)
 		cfg.LLM.ActiveID = a.config.LLM.ActiveID
 	}
-	a.mu.RUnlock()
 	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if err := a.rebuildProvidersForConfigLocked(cfg); err != nil {
 		return err
 	}

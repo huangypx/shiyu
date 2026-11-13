@@ -33,7 +33,7 @@ macOS 的惯例是 `~/Library/Application Support/<bundle-id>`。这里改用家
 
 因此 `ConfigPath()` 与 `HistoryPath()` 会通过 Wails 暴露真实路径，界面可以展示给用户。
 
-Windows 上 WebView2 的数据目录可以用 `Windows.WebviewUserDataPath` 一并收进同一目录；macOS / Linux 的 WebKit 数据目录无法重定向，保持系统默认。
+Windows 的 WebView2 数据保存在 `<home>/webview/`，通过 `Windows.WebviewUserDataPath` 指定。macOS / Linux 的 WebKit 数据目录保持系统默认。
 
 ## 二、config.json
 
@@ -52,7 +52,7 @@ Windows 上 WebView2 的数据目录可以用 `Windows.WebviewUserDataPath` 一�
         "provider": "openai-compatible",
         "baseUrl": "https://api.openai.com/v1",
         "apiKey": "",
-        "model": "gpt-4o-mini-transcribe",
+        "model": "gpt-transcribe",
         "language": "",
         "mode": "transcriptions",
         "stream": false
@@ -84,7 +84,8 @@ Windows 上 WebView2 的数据目录可以用 `Windows.WebviewUserDataPath` 一�
     "activePresetId": "default"
   },
   "desktop": {
-    "hotkey": "Ctrl+Shift+Space",
+    "hotkey": "Right Alt",
+    "launchAtLogin": false,
     "autoPaste": true,
     "startInBubble": false,
     "keepBubbleOnTop": true,
@@ -106,6 +107,7 @@ Windows 上 WebView2 的数据目录可以用 `Windows.WebviewUserDataPath` 一�
 - `llm.systemPrompt`：整理提示词的兜底值，不随模型切换。
 - `presets[].modelId`：预设可绑定某个 LLM 模型；为空表示跟随 `llm.activeId`。绑定的 ID 失效时同样回落到 `activeId`。
 - `desktop.historyRetentionDays`：`0` 表示永久保留；大于 0 时在启动阶段删除更早的记录。
+- `desktop.closeAction`：关闭窗口时的选择。缺失或为 `ask` 时每次询问，`background` 进入后台，`quit` 直接退出。
 
 ### 凭证
 

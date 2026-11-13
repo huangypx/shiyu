@@ -164,6 +164,9 @@ func TestPolishTextUsesRequestedPreset(t *testing.T) {
 	if len(systems) != 1 || !strings.Contains(systems[0], "精简口述文本") {
 		t.Fatalf("system message = %q, want the concise preset", systems)
 	}
+	if !strings.Contains(systems[0], listPolishInstructions) {
+		t.Fatalf("list instructions missing from system message: %q", systems[0])
+	}
 	// 预设里带占位符，语言应替换进去而不是再追加英文句子。
 	if strings.Contains(systems[0], languagePlaceholder) || !strings.Contains(systems[0], "zh") {
 		t.Fatalf("language placeholder was not resolved: %q", systems[0])

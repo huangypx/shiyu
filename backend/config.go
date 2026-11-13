@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -134,8 +135,10 @@ type BubblePosition struct {
 // 同时仍然掌控当前应用。
 type DesktopConfig struct {
 	Hotkey            string          `json:"hotkey"`
+	CloseAction       string          `json:"closeAction"`
 	AutoPaste         bool            `json:"autoPaste"`
 	StartInBubble     bool            `json:"startInBubble"`
+	LaunchAtLogin     bool            `json:"launchAtLogin"`
 	KeepBubbleOnTop   bool            `json:"keepBubbleOnTop"`
 	ShowResultPreview bool            `json:"showResultPreview"`
 	RestoreClipboard  bool            `json:"restoreClipboard"`
@@ -155,7 +158,13 @@ type Config struct {
 	Desktop DesktopConfig `json:"desktop"`
 }
 
+const gptTranscribeModel = "gpt-transcribe"
+
 func DefaultConfig() Config {
+	hotkey := "Ctrl+Shift+Space"
+	if runtime.GOOS == "windows" {
+		hotkey = "Right Alt"
+	}
 	return Config{
 		Version: configVersion,
 		ASR: ASRSection{
@@ -165,7 +174,7 @@ func DefaultConfig() Config {
 				Name:     defaultModelName,
 				Provider: "openai-compatible",
 				BaseURL:  "https://api.openai.com/v1",
-				Model:    "gpt-4o-mini-transcribe",
+				Model:    gptTranscribeModel,
 			}},
 		},
 		LLM: LLMSection{
@@ -183,7 +192,8 @@ func DefaultConfig() Config {
 			ActivePresetID: defaultActivePresetID,
 		},
 		Desktop: DesktopConfig{
-			Hotkey:               "Ctrl+Shift+Space",
+			Hotkey:               hotkey,
+			CloseAction:          "ask",
 			AutoPaste:            true,
 			StartInBubble:        false,
 			KeepBubbleOnTop:      true,
@@ -194,11 +204,14 @@ func DefaultConfig() Config {
 	}
 }
 
-const defaultSystemPrompt = "You clean up dictated text. Preserve the speaker's meaning and language, fix punctuation and obvious transcription errors, remove filler words, and return only the polished text."
-
-// defaultActivePresetID 指向内置的「默认整理」预设，保证首次启动
-// 的输出与此前写死提示词时完全一致。
 const defaultActivePresetID = "default"
+
+const listPolishInstructions = "听出步骤、优先级、排序要求或“第一、第二”这样的编号时，用 1.、2. 编号。按给出的顺序或排序依据排列，缺少依据时保留口述顺序。" +
+	"并列列举的事项用「- 」分点。每项单独一行，普通叙述保留自然段。" +
+	"删去口头禅、重复表述和只用于引出条目的套话，保留事实、条件、数字和否定。" +
+	"纯清单直接从第一项开始，省去额外的标题、引言和总结。"
+
+const defaultSystemPrompt = "整理口述文本，保留原意与原文语言，修正标点和明显的转写错误。只输出整理后的正文。" + listPolishInstructions
 
 // defaultPolishPresets 返回内置预设的副本。调用方可能直接改动
 // 配置里的切片，不能让它和包级常量共享底层数组。
@@ -214,17 +227,17 @@ func defaultPolishPresets() []PolishPreset {
 // 以下三段是给用户改的示例预设，因此写成中文，并示范
 // {{language}} 占位符的用法：语言指令可以放在句子里，
 // 而不是被后端拼到末尾。
-const concisePolishPrompt = "你负责精简口述文本。保留原意与说话人的语言（{{language}}），" +
-	"删除重复表述、口头禅和语气词，把语义重复的短句合并成一句，" +
-	"不要新增信息，不要改写成提纲或列表，只输出整理后的正文。"
+const concisePolishPrompt = "你负责精简口述文本。保留原意与说话人的语言（{{language}}），合并语义重复的短句，只输出整理后的正文。" + listPolishInstructions
 
-const markdownPolishPrompt = "你把口述内容整理成结构化 Markdown，语言为 {{language}}。" +
+const legacyMarkdownPolishPrompt = "你把口述内容整理成结构化 Markdown，语言为 {{language}}。" +
 	"按内容层级给出标题、要点列表和任务列表（- [ ] 待办），补全标点并删除口头禅，" +
 	"不添加原文没有的事实，只输出 Markdown 正文，不要用代码块包裹整体结果。"
+const markdownPolishPrompt = legacyMarkdownPolishPrompt + listPolishInstructions
 
-const meetingPolishPrompt = "你把口述内容整理成会议纪要，语言为 {{language}}。" +
+const legacyMeetingPolishPrompt = "你把口述内容整理成会议纪要，语言为 {{language}}。" +
 	"在合适的段落列出时间、参与者、讨论重点与可执行待办（- [ ]），" +
 	"信息缺失时直接省略对应条目，不要编造，只输出纪要正文。"
+const meetingPolishPrompt = legacyMeetingPolishPrompt + listPolishInstructions
 
 // ConfigStore 把配置持久化为一个小 JSON 文件。
 // Save 先写临时文件再重命名，进程中断也不会

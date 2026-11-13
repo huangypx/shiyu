@@ -30,6 +30,7 @@ type Paths struct {
 	Home             string
 	ConfigPath       string
 	HistoryPath      string
+	WebviewPath      string
 	LegacyConfigPath string
 	LegacyNotesPath  string
 }
@@ -69,6 +70,7 @@ func PathsFor(home string) Paths {
 		Home:             home,
 		ConfigPath:       filepath.Join(home, "config.json"),
 		HistoryPath:      filepath.Join(home, "history.db"),
+		WebviewPath:      filepath.Join(home, "webview"),
 		LegacyConfigPath: legacyConfigPath(),
 	}
 }

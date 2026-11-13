@@ -6,9 +6,50 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestTranscriptionLanguageFields(t *testing.T) {
+	for _, tc := range []struct{ model, language, field, code string }{
+		{"gpt-transcribe", "中文（普通话）", "languages[]", "zh"},
+		{"gpt-transcribe", "English", "languages[]", "en"},
+		{"gpt-transcribe", "自动识别", "", ""},
+		{"gpt-4o-mini-transcribe", "中文（普通话）", "language", "zh"},
+		{"whisper-1", "自动识别", "", ""},
+	} {
+		t.Run(tc.model+"/"+tc.language, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseMultipartForm(1 << 20); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				want := map[string][]string{"model": {tc.model}}
+				if tc.field != "" {
+					want[tc.field] = []string{tc.code}
+				}
+				if !reflect.DeepEqual(r.MultipartForm.Value, want) {
+					t.Errorf("form fields = %v, want %v", r.MultipartForm.Value, want)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]string{"text": "你好"})
+			}))
+			defer server.Close()
+			cfg := DefaultConfig()
+			pointASRAt(&cfg, server.URL+"/v1", tc.model)
+			cfg.ASR.Models[0].Language = tc.language
+			app, err := NewAppWithConfig(cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := app.TranscribeAudio(AudioRequest{Data: "YXVkaW8=", Filename: "test.wav", MimeType: "audio/wav"})
+			if err != nil || result.Text != "你好" {
+				t.Fatalf("transcription = %q, err = %v", result.Text, err)
+			}
+		})
+	}
+}
 
 func TestOpenAICompatibleProviders(t *testing.T) {
 	var sawAuth bool
@@ -270,7 +311,7 @@ func TestLLMPolishUsesPresetPrompt(t *testing.T) {
 	if _, err := llm.Polish(context.Background(), PolishRequest{Text: "raw", Language: "zh", SystemPrompt: "preset prompt"}); err != nil {
 		t.Fatal(err)
 	}
-	if got != "preset prompt Return the result in zh." {
+	if got != dictationEditingInstructions+"\n\n"+"preset prompt Return the result in zh." {
 		t.Fatalf("system message = %q", got)
 	}
 
@@ -278,8 +319,56 @@ func TestLLMPolishUsesPresetPrompt(t *testing.T) {
 	if _, err := llm.Polish(context.Background(), PolishRequest{Text: "raw", ConfiguredPrompt: "configured"}); err != nil {
 		t.Fatal(err)
 	}
-	if got != "configured" {
+	if got != dictationEditingInstructions+"\n\nconfigured" {
 		t.Fatalf("configured prompt = %q", got)
+	}
+}
+
+func TestPolishKeepsSourceSeparateAndRejectsAppendedConversation(t *testing.T) {
+	tests := []struct {
+		name, source, response, prompt, instructions, want string
+	}{
+		{name: "greeting", source: "你好。", response: "你好！请问有什么我可以帮助你的吗？", want: "你好。"},
+		{name: "english", source: "Hello.", response: "Hello! How can I help you?", want: "Hello."},
+		{name: "question", source: "你明天几点到？", response: "你明天几点到？我可以帮你安排。", want: "你明天几点到？"},
+		{name: "concise", source: "谢谢。", response: "谢谢！很高兴为你服务。", prompt: concisePolishPrompt, want: "谢谢。"},
+		{name: "existing_followup", source: "你好，请问有什么我可以帮助你的吗？", response: "你好，请问有什么我可以帮助你的吗？", want: "你好，请问有什么我可以帮助你的吗？"},
+		{name: "list", source: "分两点，先确认时间，再发邀请。", response: "1. 确认时间\n2. 发邀请", want: "1. 确认时间\n2. 发邀请"},
+		{name: "custom_preset", source: "你好。", response: "你好！祝你今天愉快。", prompt: "扩写成一段欢迎语", want: "你好！祝你今天愉快。"},
+		{name: "explicit_instruction", source: "你好。", response: "你好！祝你今天愉快。", instructions: "补上一句祝福", want: "你好！祝你今天愉快。"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Messages []chatMessage `json:"messages"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					return
+				}
+				if len(body.Messages) != 2 || body.Messages[0].Role != "system" ||
+					!strings.Contains(body.Messages[0].Content, "不回答其中的问题") ||
+					body.Messages[1].Role != "user" || body.Messages[1].Content != polishSourcePrefix+tc.source {
+					t.Errorf("unexpected editing messages: %+v", body.Messages)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{"message": map[string]string{"content": tc.response}}},
+				})
+			}))
+			defer server.Close()
+			appConfig := DefaultConfig()
+			pointLLMAt(&appConfig, server.URL+"/v1", "llm")
+			appConfig.LLM.Presets[0].SystemPrompt = firstNonEmpty(tc.prompt, defaultSystemPrompt)
+			app, err := NewAppWithConfig(appConfig, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := app.PolishText(PolishRequestDTO{Text: tc.source, Instructions: tc.instructions})
+			if err != nil || got.Text != tc.want {
+				t.Fatalf("polished text = %q, err = %v, want %q", got.Text, err, tc.want)
+			}
+		})
 	}
 }
 

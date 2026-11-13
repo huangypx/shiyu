@@ -346,8 +346,10 @@ export class Config {
  */
 export class DesktopConfig {
     "hotkey": string;
+    "closeAction": string;
     "autoPaste": boolean;
     "startInBubble": boolean;
+    "launchAtLogin": boolean;
     "keepBubbleOnTop": boolean;
     "showResultPreview": boolean;
     "restoreClipboard": boolean;
@@ -365,11 +367,17 @@ export class DesktopConfig {
         if (!("hotkey" in $$source)) {
             this["hotkey"] = "";
         }
+        if (!("closeAction" in $$source)) {
+            this["closeAction"] = "";
+        }
         if (!("autoPaste" in $$source)) {
             this["autoPaste"] = false;
         }
         if (!("startInBubble" in $$source)) {
             this["startInBubble"] = false;
+        }
+        if (!("launchAtLogin" in $$source)) {
+            this["launchAtLogin"] = false;
         }
         if (!("keepBubbleOnTop" in $$source)) {
             this["keepBubbleOnTop"] = false;
@@ -391,10 +399,10 @@ export class DesktopConfig {
      * Creates a new DesktopConfig instance from a string or object.
      */
     static createFrom($$source: any = {}): DesktopConfig {
-        const $$createField6_0 = $$createType7;
+        const $$createField8_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("bubblePosition" in $$parsedSource) {
-            $$parsedSource["bubblePosition"] = $$createField6_0($$parsedSource["bubblePosition"]);
+            $$parsedSource["bubblePosition"] = $$createField8_0($$parsedSource["bubblePosition"]);
         }
         return new DesktopConfig($$parsedSource as Partial<DesktopConfig>);
     }

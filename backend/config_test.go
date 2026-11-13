@@ -27,6 +27,7 @@ func TestConfigStoreRoundTripAndDefaults(t *testing.T) {
 		t.Fatalf("expected a single default model per kind, got %+v", got)
 	}
 	got.ASR.Models[0].APIKey = "secret"
+	got.Desktop.LaunchAtLogin = true
 	if err := store.Save(got); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -37,13 +38,10 @@ func TestConfigStoreRoundTripAndDefaults(t *testing.T) {
 	if loaded.ASR.Models[0].APIKey != "secret" {
 		t.Fatalf("secret did not round trip")
 	}
-	info, err := os.Stat(store.Path())
-	if err != nil {
-		t.Fatal(err)
+	if !loaded.Desktop.LaunchAtLogin {
+		t.Fatal("launch at login setting did not round trip")
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("config mode = %o, want 600", info.Mode().Perm())
-	}
+	assertStorageMode(t, store.Path(), 0o600)
 	_ = cfg
 }
 
@@ -126,6 +124,59 @@ func TestConfigStoreRejectsNewerVersion(t *testing.T) {
 	}
 	if _, err := NewConfigStore(path).Load(); err == nil {
 		t.Fatal("expected a newer config version to be rejected")
+	}
+}
+
+func TestCloseActionSurvivesRestartAndLegacyDesktopSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	app, err := NewApp(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.GetDesktopConfig().CloseAction != "ask" {
+		t.Fatal("fresh install should ask")
+	}
+	for _, action := range []string{"background", "quit", "ask"} {
+		if err := UpdateDesktopConfig(app, func(cfg *DesktopConfig) { cfg.CloseAction = action }); err != nil {
+			t.Fatal(err)
+		}
+		legacy := app.GetDesktopConfig()
+		legacy.CloseAction = ""
+		if err := app.SaveDesktopConfig(legacy); err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := NewApp(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := reopened.GetDesktopConfig().CloseAction; got != action {
+			t.Fatalf("close action = %q, want %q", got, action)
+		}
+	}
+}
+
+func TestUpgradePolishPromptsPreservesUserEdits(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LLM.SystemPrompt = legacyDefaultSystemPrompt
+	cfg.LLM.Presets = nil
+	cfg.applyDefaults()
+	if cfg.LLM.SystemPrompt != defaultSystemPrompt || cfg.LLM.ActivePresetID != defaultActivePresetID {
+		t.Fatal("legacy default was treated as a custom prompt")
+	}
+
+	cfg.LLM.ActivePresetID = "concise"
+	cfg.LLM.Presets = []PolishPreset{
+		{ID: "concise", Name: "短句", SystemPrompt: legacyConcisePolishPrompt, ModelID: cfg.LLM.ActiveID},
+		{ID: defaultActivePresetID, Name: "我的默认", SystemPrompt: "按我的格式写"},
+		{ID: "copy", Name: "副本", SystemPrompt: legacyDefaultSystemPrompt},
+	}
+	cfg.applyDefaults()
+	active, ok := cfg.ResolvePolishPreset("")
+	if !ok || active.Name != "短句" || active.ModelID != cfg.LLM.ActiveID || active.SystemPrompt != concisePolishPrompt {
+		t.Fatalf("upgraded active preset = %+v", active)
+	}
+	if cfg.LLM.Presets[1].SystemPrompt != "按我的格式写" || cfg.LLM.Presets[2].SystemPrompt != legacyDefaultSystemPrompt {
+		t.Fatal("custom prompt or copied preset was overwritten")
 	}
 }
 

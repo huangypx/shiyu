@@ -7,11 +7,12 @@ import (
 )
 
 // withTempHome 把家目录指到临时目录，避免迁移用例碰到真实的
-// ~/.open-typeless。单独包一层是因为每个用例都要做同样两件事。
+// ~/.open-typeless。Go 在 Windows 上读取 USERPROFILE，在类 Unix 系统上读取 HOME。
 func withTempHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	return home
 }
 

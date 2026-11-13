@@ -152,8 +152,20 @@ func (s *ASRSection) applyDefaults(d ASRSection) {
 	}
 }
 
+const legacyDefaultSystemPrompt = "You clean up dictated text. Preserve the speaker's meaning and language, fix punctuation and obvious transcription errors, remove filler words, and return only the polished text."
+const legacyConcisePolishPrompt = "你负责精简口述文本。保留原意与说话人的语言（{{language}}），" +
+	"删除重复表述、口头禅和语气词，把语义重复的短句合并成一句，" +
+	"不要新增信息，不要改写成提纲或列表，只输出整理后的正文。"
+
+var builtinPromptUpgrades = map[string]struct{ previous, current string }{
+	defaultActivePresetID: {legacyDefaultSystemPrompt, defaultSystemPrompt},
+	"concise":             {legacyConcisePolishPrompt, concisePolishPrompt},
+	"markdown":            {legacyMarkdownPolishPrompt, markdownPolishPrompt},
+	"meeting":             {legacyMeetingPolishPrompt, meetingPolishPrompt},
+}
+
 func (s *LLMSection) applyDefaults(d LLMSection) {
-	if strings.TrimSpace(s.SystemPrompt) == "" {
+	if prompt := strings.TrimSpace(s.SystemPrompt); prompt == "" || prompt == legacyDefaultSystemPrompt {
 		s.SystemPrompt = d.SystemPrompt
 	}
 	if len(s.Models) == 0 {
@@ -222,6 +234,10 @@ func (s *LLMSection) applyPresetDefaults(d LLMSection) {
 			preset.ID = nextPresetID(used)
 		}
 		used[preset.ID] = true
+		// 只更新对应内置预设的原版提示词，用户编辑的内容和另存的副本各自保留。
+		if upgrade, ok := builtinPromptUpgrades[preset.ID]; ok && preset.SystemPrompt == upgrade.previous {
+			preset.SystemPrompt = upgrade.current
+		}
 		// 绑定的模型可能已经被删掉；清空绑定即回到「跟随全局」，
 		// 比留下一串指向不存在模型的 ID 更容易解释。
 		if preset.ModelID != "" && !containsLLMModel(s.Models, preset.ModelID) {
@@ -239,6 +255,9 @@ func (s *LLMSection) applyPresetDefaults(d LLMSection) {
 }
 
 func (d *DesktopConfig) applyDefaults(def DesktopConfig) {
+	if d.CloseAction != "background" && d.CloseAction != "quit" {
+		d.CloseAction = def.CloseAction
+	}
 	if strings.TrimSpace(d.Hotkey) == "" {
 		d.Hotkey = def.Hotkey
 	}

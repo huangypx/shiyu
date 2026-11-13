@@ -3,9 +3,26 @@ package backend
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func assertStorageMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mask := os.ModeType | os.ModePerm
+	if runtime.GOOS == "windows" {
+		// Windows 由 ACL 控制访问。Go 的写权限位只反映文件的只读属性。
+		mask = os.ModeType | 0o200
+	}
+	if got := info.Mode() & mask; got != want&mask {
+		t.Fatalf("%s: mode = %v, want %v (mask %v)", path, got, want&mask, mask)
+	}
+}
 
 func TestResolveHomePrefersEnvVar(t *testing.T) {
 	dir := t.TempDir()
@@ -22,6 +39,9 @@ func TestResolveHomePrefersEnvVar(t *testing.T) {
 	}
 	if paths.HistoryPath != filepath.Join(dir, "history.db") {
 		t.Fatalf("history path = %q", paths.HistoryPath)
+	}
+	if paths.WebviewPath != filepath.Join(dir, "webview") {
+		t.Fatalf("WebView data path = %q", paths.WebviewPath)
 	}
 }
 
@@ -60,13 +80,7 @@ func TestEnsureHomeCreatesPrivateDirectory(t *testing.T) {
 	if err := paths.EnsureHome(); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o700 {
-		t.Fatalf("directory mode = %o, want 700", info.Mode().Perm())
-	}
+	assertStorageMode(t, home, os.ModeDir|0o700)
 }
 
 func TestTouchFileUsesUserOnlyPermissions(t *testing.T) {
@@ -74,13 +88,7 @@ func TestTouchFileUsesUserOnlyPermissions(t *testing.T) {
 	if err := TouchFile(path); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("file mode = %o, want 600", info.Mode().Perm())
-	}
+	assertStorageMode(t, path, 0o600)
 	// 重复调用不能截断已有内容。
 	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
