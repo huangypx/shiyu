@@ -28,7 +28,7 @@
 - `asr.language`：全局识别语言；单个模型的 `language` 非空时优先。
 - `asr.models[].stream`：只对对话接口生效；默认 false，取默认值时不落盘，新增不需要升版本。
 - `llm.presets` / `llm.activePresetId`：整理预设与当前预设；`presetId` 为空或失效时按「生效预设 → 第一个预设」回落，预设的 `modelId` 为空时使用 `llm.activeId`。
-- `llm.systemPrompt`：兜底提示词，不随模型切换；提示词里的 `{{language}}` 会替换成当前识别语言。
+- `llm.systemPrompt`：兜底提示词，不随模型切换；与预设一样按 Go 模板渲染，可用 `{{ .language }}`、`{{ .languageCode }}`、`{{ .date }}`。
 - `desktop.hotkey`：平台默认值 macOS `Option+Space`、Windows `Alt+Space`、Linux `Ctrl+Shift+Space`；已保存的值不会被默认值覆盖。
 - `desktop.historyRetentionDays`：0 表示永久保留；大于 0 时在启动阶段删除更早的记录。
 - `desktop.bubbleHidden` / `desktop.closeAction`：分别只能通过 `Controller.SetBubbleHidden` 和 `Controller.ResolveClose` 写入；设置页保存其它偏好时会保留这两个字段，不会重置。Linux 没有托盘实现，不能持久化隐藏悬浮球。

@@ -24,15 +24,17 @@ export default function AppShell() {
   const feedback = useFeedback();
 
   const handleSave = useCallback(async () => {
-    const remoteSaved = await saveSettings();
+    const { ok, error } = await saveSettings();
     closeSettings();
     feedback(
       // 「本机」指代不清：失败时配置其实只写进了 localStorage，
-      // 说清楚落点是哪里，用户才知道该不该重试。
-      remoteSaved
+      // 说清楚落点是哪里、为什么没写进去，用户才知道该不该重试。
+      ok
         ? '设置已保存到 ~/.shiyu/config.json'
-        : '已保存在浏览器本地，桌面配置暂未写入',
-      remoteSaved ? 'success' : 'error',
+        : error
+          ? `设置未写入桌面配置：${error}`
+          : '已保存在浏览器本地，桌面配置暂未写入',
+      ok ? 'success' : 'error',
     );
   }, [closeSettings, feedback, saveSettings]);
 

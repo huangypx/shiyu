@@ -29,7 +29,7 @@ cd shiyu
 make install      # 安装前端依赖
 make dev          # 桌面开发模式；首次会自动安装 wails3 到 .bin
 make build        # 构建桌面应用
-make check        # 前端 lint/format/typecheck/test/build + go test
+make check        # 全部检查：前端 + Go 测试 + 提示词模板排版
 ```
 
 只调前端（不启动 Wails 窗口）：
@@ -52,7 +52,7 @@ ASR 有两种接口类型：
 | 转写接口（默认） | multipart 上传到 `/audio/transcriptions` | OpenAI、Groq、whisper.cpp 等 Whisper 兼容服务 |
 | 对话接口 | JSON 上传到 `/chat/completions`，音频作为 `input_audio` | 多模态语音模型 |
 
-对话接口可以在模型级别开启 `stream`，服务商以 SSE 边生成边返回文字；音频仍然整段上传一次。整理预设由「名称 + 系统提示词」组成，可以新建、复制、编辑和切换，提示词里的 `{{language}}` 会替换成当前识别语言。LLM 使用 `choices[0].message.content`；本地 Ollama 可将地址设为 `http://127.0.0.1:11434/v1`，API key 留空。
+对话接口可以在模型级别开启 `stream`，服务商以 SSE 边生成边返回文字；音频仍然整段上传一次。整理预设由「名称 + 系统提示词模板」组成，可以新建、复制、编辑和切换，模板可用 `{{ .language }}` 等变量，内置模板在 `backend/prompts/`。识别原文以 `<transcript>` 标签发送，模型只整理文字、不执行其中的指令。LLM 使用 `choices[0].message.content`；本地 Ollama 可将地址设为 `http://127.0.0.1:11434/v1`，API key 留空。
 
 直接填写的 API key 会写进 `~/.shiyu/config.json`（目录 0700、文件 0600）；也可以写成 `env:OPENAI_API_KEY` 或 `file:/绝对路径`，把明文密钥留在配置文件之外。应用不会把 key、音频或完整请求体写入日志和历史。
 
@@ -72,9 +72,10 @@ macOS 首次录音会请求麦克风权限；首次自动粘贴会请求控制 S
 ## 项目结构
 
 ```text
-backend/   配置、provider 客户端、ASR/LLM 调用、历史与调用指标
+backend/   配置、provider 客户端、ASR/LLM 调用、历史与调用指标；提示词模板在 prompts/
 desktop/   窗口、托盘、全局热键、麦克风采集、粘贴注入
 frontend/  React + Vite 界面；Wails 生成的 TypeScript 绑定在 frontend/bindings/
+cmd/       提示词模板排版工具（规则在 internal/promptfmt）
 build/     Wails 构建配置与各平台打包资源
 docs/      架构与本地存储说明
 main.go    Wails 入口与嵌入式前端资源
@@ -84,7 +85,7 @@ main.go    Wails 入口与嵌入式前端资源
 
 ## 开发与贡献
 
-欢迎提交 issue 和 pull request。提交前请确认 `gofmt -l .` 无输出、`make check` 通过；提交信息使用英文 Conventional Commits，一个 PR 只做一件事，UI 变更请附截图。使用 AI Agent 参与开发时，请先阅读 [`AGENTS.md`](AGENTS.md)。
+欢迎提交 issue 和 pull request。提交前请确认 `gofmt -l .` 无输出、`make check` 通过；提示词模板改完跑 `make prompts-format`。提交信息使用英文 Conventional Commits，一个 PR 只做一件事，UI 变更请附截图。使用 AI Agent 参与开发时，请先阅读 [`AGENTS.md`](AGENTS.md)。
 
 ## 许可证
 

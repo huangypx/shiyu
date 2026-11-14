@@ -180,14 +180,16 @@ describe('settingsStore', () => {
     );
   });
 
-  it('保存写回后端，桌面端不可用时返回 false 但仍落盘', async () => {
+  it('保存写回后端，桌面端不可用时报失败但仍落盘', async () => {
     bridge.saveSettings.mockResolvedValue(undefined);
     bridge.saveDesktopSettings.mockResolvedValue(undefined);
     bridge.configureHotkey.mockRejectedValue(new Error('预览环境'));
 
     const saved = await useSettingsStore.getState().save();
 
-    expect(saved).toBe(false);
+    expect(saved.ok).toBe(false);
+    // 原因要带回界面：模板语法错这类失败必须让用户知道为什么没保存。
+    expect(saved.error).toContain('预览环境');
     expect(localStorage.getItem(SETTINGS_KEY)).toContain(
       'gpt-4o-mini-transcribe',
     );

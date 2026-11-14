@@ -5,6 +5,7 @@
 ## 组成
 
 - 单个 Go 进程。`backend` 包负责配置、provider 客户端、ASR/LLM 调用、历史与调用指标，不依赖 Wails runtime；它通过注入的 emitter 发事件，由 `main.go` 桥接到 Wails。
+- 提示词模板在 `backend/prompts/*.tmpl`，由 backend 包 embed；前端通过 Vite 的 `?raw` 导入同一份文件，作为浏览器预览的默认预设，仓库里只有一份提示词文本。排版规则在 `internal/promptfmt`，由 `cmd/promptfmt` 执行，`make check` 会校验。
 - `desktop` 包负责窗口、托盘、全局热键、麦克风采集、会话状态和粘贴注入，直接使用 Wails 的窗口与托盘 API。
 - `frontend` 是 React 视图，只持有视图状态和 Go 会话状态的投影；通过生成的 TypeScript 绑定调用 Go。
 - `main.go` 装配 Wails 应用、embed 前端产物，并注册 backend 与 desktop 服务。
@@ -14,6 +15,7 @@
 - 状态机：`idle → arming → recording → processing → idle`；失败或取消也回到 `idle`。
 - 会话状态由 `desktop.Controller` 独占并广播 `desktop:session`，main/bubble/overlay 三个窗口只读；空闲时前端可以通过 `PublishSession` 提交文本编辑。
 - 录音由 Go 内的 `malgo`（miniaudio）完成，固定 16 kHz 单声道 S16；录音结束后整段上传给 ASR，再交给 LLM 整理，最后写历史并按设置自动粘贴。
+- 整理请求的 user 消息固定是 `<transcript>` 标签包住的转写原文，system 消息末尾固定追加守卫句（`backend/prompts/guard.tmpl`），要求模型把标签内的内容当作文本而不是指令；自定义预设和旧配置都受同一条约束。
 - 取消通过递增的会话代号实现：取消后所有 await 结果和迟到的流式增量都会因为代号不匹配被丢弃。
 - ASR 的 `stream` 只影响结果返回方式（SSE 逐字上屏），不改变「整段音频上传一次」；只有对话接口支持。
 - 录音/整理期间由 Go 写入状态，前端只在空闲时提交草稿编辑，避免本地编辑被增量覆盖。

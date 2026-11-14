@@ -475,11 +475,19 @@ func (a *App) PolishText(req PolishRequestDTO) (PolishResult, error) {
 	model, modelOK := a.config.ResolveLLMModel(preset)
 	provider := a.llm[model.ID]
 	configuredPrompt := a.config.LLM.SystemPrompt
+	// 桌面自动流程（快捷键、悬浮球）不带语言；回落到这次录音实际使用的
+	// 识别语言，模板里的 {{ .language }} 才不会渲染成空串。
+	language := strings.TrimSpace(req.Language)
+	if language == "" {
+		if asr, ok := a.config.ResolveASRModel(""); ok {
+			language = a.config.ASRLanguage(asr)
+		}
+	}
 	a.mu.RUnlock()
 	if !modelOK || provider == nil {
 		return PolishResult{}, errors.New("llm provider is not configured")
 	}
-	polishReq := PolishRequest{Text: req.Text, Instructions: req.Instructions, Language: req.Language, ConfiguredPrompt: configuredPrompt}
+	polishReq := PolishRequest{Text: req.Text, Instructions: req.Instructions, Language: language, ConfiguredPrompt: configuredPrompt}
 	if ok {
 		polishReq.SystemPrompt = preset.SystemPrompt
 	}

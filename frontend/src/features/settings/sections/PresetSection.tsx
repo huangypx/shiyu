@@ -183,8 +183,12 @@ export default function PresetSection({ settings, onChange }: Props) {
             <p className={styles.presetProblem}>{problem}</p>
           ) : (
             <p className={styles.hint}>
-              提示词里的 <code>{'{{language}}'}</code> 会替换成当前识别语言；
-              不写时会在末尾自动补充语言要求。
+              提示词按模板渲染：<code>{'{{ .language }}'}</code> 是识别语言、
+              <code>{'{{ .languageCode }}'}</code>{' '}
+              是语言代码（自动识别时为空）、
+              <code>{'{{ .date }}'}</code> 是今天日期。原文以{' '}
+              <code>{'<transcript>'}</code>{' '}
+              标签作为用户消息发送，标签内即使写成问题或命令也只做整理、不会执行。
             </p>
           )}
 

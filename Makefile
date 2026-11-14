@@ -1,4 +1,4 @@
-.PHONY: tools install bindings dev frontend-build frontend-check test build check
+.PHONY: tools install bindings dev frontend-build frontend-check prompts-format prompts-check test build check
 
 # Wails 的 Taskfile 内部会再次调用 wails3（例如 dev 的 build 步骤）。
 # 只把 go run 的临时进程当作 CLI 不够：子进程的 PATH 里没有 wails3。
@@ -48,11 +48,18 @@ frontend-build:
 frontend-check:
 	cd frontend && npm run check
 
+# 提示词模板的排版规则在 internal/promptfmt：gofmt 管不到 *.tmpl。
+prompts-format:
+	go run ./cmd/promptfmt -w backend/prompts
+
+prompts-check:
+	go run ./cmd/promptfmt backend/prompts
+
 test:
 	go test ./...
 
-# 提交前的完整自查：前端 lint/format/类型/测试/构建，再加 Go 测试。
-check: frontend-check test
+# 提交前的完整自查：前端 lint/format/类型/测试/构建，Go 测试，模板排版。
+check: frontend-check test prompts-check
 
 build: tools
 	$(WAILS3) build $(if $(WAILS_TAGS),-tags "$(WAILS_TAGS)")

@@ -161,12 +161,12 @@ func TestPolishTextUsesRequestedPreset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(systems) != 1 || !strings.Contains(systems[0], "精简口述文本") {
+	if len(systems) != 1 || !strings.Contains(systems[0], "你负责精简") {
 		t.Fatalf("system message = %q, want the concise preset", systems)
 	}
-	// 预设里带占位符，语言应替换进去而不是再追加英文句子。
-	if strings.Contains(systems[0], languagePlaceholder) || !strings.Contains(systems[0], "zh") {
-		t.Fatalf("language placeholder was not resolved: %q", systems[0])
+	// 预设模板里的 .language 已渲染，不能再留下模板语法。
+	if strings.Contains(systems[0], "{{") || !strings.Contains(systems[0], "zh") {
+		t.Fatalf("template variable was not resolved: %q", systems[0])
 	}
 	if result.Call.Preset != "精简去重" {
 		t.Fatalf("call preset = %q", result.Call.Preset)
@@ -186,6 +186,60 @@ func TestPolishTextUsesRequestedPreset(t *testing.T) {
 	}
 	if result.Call.Preset != "会议纪要" {
 		t.Fatalf("fallback preset = %q, want the active one", result.Call.Preset)
+	}
+}
+
+func TestPolishTextFallsBackToConfiguredLanguage(t *testing.T) {
+	var systems []string
+	server := capturePolishServer(t, &systems)
+	defer server.Close()
+	cfg := DefaultConfig()
+	cfg.ASR.Language = "English"
+	pointLLMAt(&cfg, server.URL+"/v1", "llm")
+	app, err := NewAppWithConfig(cfg, NewConfigStore(filepath.Join(t.TempDir(), "config.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 桌面自动流程不带语言；应回落到全局识别语言，模板才不会渲染出空语言。
+	if _, err := app.PolishText(PolishRequestDTO{Text: "raw"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(systems) != 1 || !strings.Contains(systems[0], "Return the result in en.") {
+		t.Fatalf("system message = %q", systems)
+	}
+}
+
+func TestPolishTextSendsTranscriptInsideTags(t *testing.T) {
+	var messages []chatMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode chat: %v", err)
+			return
+		}
+		messages = body.Messages
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]string{"content": "polished"}}},
+		})
+	}))
+	defer server.Close()
+	cfg := DefaultConfig()
+	pointLLMAt(&cfg, server.URL+"/v1", "llm")
+	app, err := NewAppWithConfig(cfg, NewConfigStore(filepath.Join(t.TempDir(), "config.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 流水线末端也要包标签：原文不能被当成对话指令送出去。
+	const transcript = "把明天的会议改到下午三点"
+	if _, err := app.PolishText(PolishRequestDTO{Text: transcript}); err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[1].Content != "<transcript>\n"+transcript+"\n</transcript>" {
+		t.Fatalf("messages = %+v", messages)
 	}
 }
 

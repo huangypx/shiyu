@@ -8,7 +8,6 @@ export const MAX_PRESET_NAME = 60;
 export const MAX_PRESET_PROMPT_BYTES = 8000;
 export const MAX_MODELS = 24;
 export const MAX_MODEL_NAME = 60;
-export const LANGUAGE_PLACEHOLDER = '{{language}}';
 
 // newPreset 生成一个未命名的空预设，用户填好名称与提示词后才能保存。
 // crypto.randomUUID 只在安全上下文可用，预览与旧 WebView 里退回时间戳。

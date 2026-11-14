@@ -117,10 +117,6 @@ const (
 	maxModelNameLen        = 60
 )
 
-// languagePlaceholder 让用户在提示词里自行决定语言指令放在哪里。
-// 出现该占位符时由后端替换成语言代码，且不再追加英文语言句。
-const languagePlaceholder = "{{language}}"
-
 // BubblePosition 记住用户把浮动圆圈停在哪里。
 // 用指针是为了区分「未设置」与屏幕左上角
 // 合法的 (0, 0) 坐标。
@@ -227,37 +223,46 @@ func defaultHotkeyFor(goos string) string {
 	}
 }
 
-const defaultSystemPrompt = "You clean up dictated text. Preserve the speaker's meaning and language, fix punctuation and obvious transcription errors, remove filler words, and return only the polished text."
+// defaultSystemPrompt 是没有任何可用预设时的兜底提示词，来自
+// prompts/default.tmpl，与内置的「默认整理」预设共用同一份模板。
+var defaultSystemPrompt = promptText("default")
+
+// transcriptGuard 是每次整理都追加在 system 消息末尾的守卫句，来自
+// prompts/guard.tmpl：user 消息里的原文只是待整理的数据，不能当指令执行。
+var transcriptGuard = promptText("guard")
 
 // defaultActivePresetID 指向内置的「默认整理」预设，保证首次启动
 // 的输出与此前写死提示词时完全一致。
 const defaultActivePresetID = "default"
 
-// defaultPolishPresets 返回内置预设的副本。调用方可能直接改动
-// 配置里的切片，不能让它和包级常量共享底层数组。
+// defaultPolishPresets 返回内置预设的副本。提示词来自 prompts/*.tmpl，
+// 名称是界面文案；调用方可能直接改动切片，因此每次都新建一份。
 func defaultPolishPresets() []PolishPreset {
 	return []PolishPreset{
-		{ID: defaultActivePresetID, Name: "默认整理", SystemPrompt: defaultSystemPrompt},
-		{ID: "concise", Name: "精简去重", SystemPrompt: concisePolishPrompt},
-		{ID: "markdown", Name: "Markdown 结构", SystemPrompt: markdownPolishPrompt},
-		{ID: "meeting", Name: "会议纪要", SystemPrompt: meetingPolishPrompt},
+		{ID: defaultActivePresetID, Name: "默认整理", SystemPrompt: promptText("default")},
+		{ID: "concise", Name: "精简去重", SystemPrompt: promptText("concise")},
+		{ID: "markdown", Name: "Markdown 结构", SystemPrompt: promptText("markdown")},
+		{ID: "meeting", Name: "会议纪要", SystemPrompt: promptText("meeting")},
 	}
 }
 
-// 以下三段是给用户改的示例预设，因此写成中文，并示范
-// {{language}} 占位符的用法：语言指令可以放在句子里，
-// 而不是被后端拼到末尾。
-const concisePolishPrompt = "你负责精简口述文本。保留原意与说话人的语言（{{language}}），" +
-	"删除重复表述、口头禅和语气词，把语义重复的短句合并成一句，" +
-	"不要新增信息，不要改写成提纲或列表，只输出整理后的正文。"
+// legacyDefaultSystemPrompt 与 legacyBuiltinPrompts 只用于升级判断：
+// 老版本把内置提示词复制进了用户配置，升级时靠「与旧文本逐字一致」
+// 区分「没改过」和「改过」，因此这些字符串不能删。
+const legacyDefaultSystemPrompt = "You clean up dictated text. Preserve the speaker's meaning and language, fix punctuation and obvious transcription errors, remove filler words, and return only the polished text."
 
-const markdownPolishPrompt = "你把口述内容整理成结构化 Markdown，语言为 {{language}}。" +
-	"按内容层级给出标题、要点列表和任务列表（- [ ] 待办），补全标点并删除口头禅，" +
-	"不添加原文没有的事实，只输出 Markdown 正文，不要用代码块包裹整体结果。"
-
-const meetingPolishPrompt = "你把口述内容整理成会议纪要，语言为 {{language}}。" +
-	"在合适的段落列出时间、参与者、讨论重点与可执行待办（- [ ]），" +
-	"信息缺失时直接省略对应条目，不要编造，只输出纪要正文。"
+var legacyBuiltinPrompts = map[string]string{
+	defaultActivePresetID: legacyDefaultSystemPrompt,
+	"concise": "你负责精简口述文本。保留原意与说话人的语言（{{language}}），" +
+		"删除重复表述、口头禅和语气词，把语义重复的短句合并成一句，" +
+		"不要新增信息，不要改写成提纲或列表，只输出整理后的正文。",
+	"markdown": "你把口述内容整理成结构化 Markdown，语言为 {{language}}。" +
+		"按内容层级给出标题、要点列表和任务列表（- [ ] 待办），补全标点并删除口头禅，" +
+		"不添加原文没有的事实，只输出 Markdown 正文，不要用代码块包裹整体结果。",
+	"meeting": "你把口述内容整理成会议纪要，语言为 {{language}}。" +
+		"在合适的段落列出时间、参与者、讨论重点与可执行待办（- [ ]），" +
+		"信息缺失时直接省略对应条目，不要编造，只输出纪要正文。",
+}
 
 // ConfigStore 把配置持久化为一个小 JSON 文件。
 // Save 先写临时文件再重命名，进程中断也不会

@@ -48,6 +48,8 @@ type ASRProvider interface {
 // SystemPrompt 是解析出的预设提示词；为空时 provider 依次回落到
 // 配置里的 systemPrompt 和内置默认值。
 type PolishRequest struct {
+	// Text 是原始识别文本；provider 会把它包进 <transcript> 标签，
+	// 作为 user 消息发送，避免被当成指令执行。
 	Text         string
 	Instructions string
 	Language     string
@@ -620,13 +622,17 @@ func (p *OpenAICompatibleLLM) Polish(ctx context.Context, req PolishRequest) (Po
 	if req.Instructions != "" {
 		system += " Additional instructions: " + req.Instructions
 	}
+	// 守卫句永远排在最后：原文只是待整理的数据，口述里的请求、问题、
+	// 命令都不该被执行。
+	system += " " + transcriptGuard
 	payload := struct {
 		Model       string        `json:"model"`
 		Messages    []chatMessage `json:"messages"`
 		Temperature float64       `json:"temperature,omitempty"`
 	}{
-		Model:       p.model,
-		Messages:    []chatMessage{{Role: "system", Content: system}, {Role: "user", Content: req.Text}},
+		Model: p.model,
+		// 原文包进固定标签：裸文本会被模型当成对话指令执行。
+		Messages:    []chatMessage{{Role: "system", Content: system}, {Role: "user", Content: transcriptMessage(req.Text)}},
 		Temperature: p.temperature,
 	}
 	encoded, err := json.Marshal(payload)
@@ -690,24 +696,25 @@ func (p *OpenAICompatibleLLM) Polish(ctx context.Context, req PolishRequest) (Po
 
 // polishSystemPrompt 组装真正发给模型的 system 消息。提示词优先级为
 // 预设 → provider 配置 → 内置默认值，因此预设为空时行为与旧版本一致。
-// 语言有两种表达方式：提示词里写了占位符就替换，让用户决定语言指令
-// 放在哪；没写就在末尾追加英文句子。占位符出现时不再追加，避免
-// 同一句话被说两遍，也避免中文提示词后面拖着一段英文。
+// 选中的文本按 text/template 渲染，模板里可以写 {{ .language }} 这类
+// 变量；模板完全没提到语言时在末尾补一句英文，保持旧版行为。
 func polishSystemPrompt(presetPrompt, configuredPrompt, language string) string {
-	system := strings.TrimSpace(presetPrompt)
-	if system == "" {
-		system = strings.TrimSpace(configuredPrompt)
+	text := strings.TrimSpace(firstNonEmpty(presetPrompt, configuredPrompt, defaultSystemPrompt))
+	data := promptVariables(language, time.Now())
+	system, err := renderPrompt(text, data)
+	if err != nil {
+		// 手改坏的历史配置不该让整理整体失败：退回原文按纯文本发送。
+		// 新写的模板错误由保存配置时的校验拦住。
+		system = text
 	}
-	if system == "" {
-		system = defaultSystemPrompt
+	// 模板提到 .language 或 .languageCode，说明语言要求由用户自己安排；
+	// 两个都没提时才追加，避免同一句话被说两遍。
+	if !strings.Contains(text, ".language") {
+		if code := data["languageCode"]; code != "" {
+			system += " Return the result in " + code + "."
+		}
 	}
-	if strings.Contains(system, languagePlaceholder) {
-		return strings.TrimSpace(strings.ReplaceAll(system, languagePlaceholder, strings.TrimSpace(language)))
-	}
-	if strings.TrimSpace(language) != "" {
-		system += " Return the result in " + strings.TrimSpace(language) + "."
-	}
-	return system
+	return strings.TrimSpace(system)
 }
 
 type chatMessage struct {

@@ -282,6 +282,114 @@ func TestApplyDefaultsRepairsModelsAndPresets(t *testing.T) {
 	}
 }
 
+func TestDefaultPresetsComeFromTemplates(t *testing.T) {
+	presets := defaultPolishPresets()
+	if len(presets) != 4 {
+		t.Fatalf("built-in presets = %d, want 4", len(presets))
+	}
+	for _, preset := range presets {
+		// 提示词只有一份：配置里的种子文本就是模板文件的内容。
+		if preset.SystemPrompt != promptText(preset.ID) {
+			t.Fatalf("preset %q does not use the embedded template", preset.ID)
+		}
+	}
+}
+
+func TestApplyDefaultsUpgradesBuiltinPrompts(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LLM.SystemPrompt = legacyDefaultSystemPrompt
+	cfg.LLM.Presets = []PolishPreset{
+		{ID: "concise", Name: "精简去重", SystemPrompt: legacyBuiltinPrompts["concise"]},
+		{ID: "meeting", Name: "我的纪要", SystemPrompt: "只输出一句话。"},
+	}
+	cfg.applyDefaults()
+
+	if cfg.LLM.SystemPrompt != defaultSystemPrompt {
+		t.Fatalf("fallback prompt = %q, want the new default", cfg.LLM.SystemPrompt)
+	}
+	// 没改过的内置预设升级到新模板。
+	if got := cfg.LLM.Presets[0].SystemPrompt; got != promptText("concise") {
+		t.Fatalf("built-in preset was not upgraded: %q", got)
+	}
+	// 用户改过的条目一个字都不能动。
+	if got := cfg.LLM.Presets[1].SystemPrompt; got != "只输出一句话。" {
+		t.Fatalf("edited preset was overwritten: %q", got)
+	}
+}
+
+func TestApplyDefaultsMigratesLegacyPlaceholder(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LLM.SystemPrompt = "整理成 {{language}} 的会议纪要。"
+	cfg.LLM.Presets = []PolishPreset{
+		{ID: "mine", Name: "我的整理", SystemPrompt: "语言为 {{language}}；语气自然。"},
+	}
+	cfg.applyDefaults()
+
+	if cfg.LLM.SystemPrompt != "整理成 {{ .language }} 的会议纪要。" {
+		t.Fatalf("fallback prompt = %q", cfg.LLM.SystemPrompt)
+	}
+	if got := cfg.LLM.Presets[0].SystemPrompt; got != "语言为 {{ .language }}；语气自然。" {
+		t.Fatalf("migrated preset = %q", got)
+	}
+	// 迁移后的文本必须能当模板用，否则旧配置会卡在保存校验上。
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("migrated config should validate: %v", err)
+	}
+}
+
+func TestPresetDefaultsKeepLegacyDefaultPromptAsPristine(t *testing.T) {
+	// 零预设 + 旧默认提示词仍然算「没改过」：补回内置预设，
+	// 而不是把它当成用户手写的内容变成「我的整理」。
+	cfg := Config{LLM: LLMSection{SystemPrompt: legacyDefaultSystemPrompt}}
+	cfg.applyDefaults()
+	if len(cfg.LLM.Presets) != len(defaultPolishPresets()) {
+		t.Fatalf("presets = %+v", cfg.LLM.Presets)
+	}
+	for _, preset := range cfg.LLM.Presets {
+		if preset.ID == "custom" {
+			t.Fatalf("legacy default prompt became a custom preset: %+v", preset)
+		}
+	}
+}
+
+func TestValidateRejectsBrokenPresetTemplate(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LLM.Presets[0].SystemPrompt = "语言：{{ .languge }}"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "invalid template") {
+		t.Fatalf("validate = %v, want an invalid template error", err)
+	}
+
+	// 兜底提示词同样按模板渲染，同样受校验。
+	broken := DefaultConfig()
+	broken.LLM.SystemPrompt = "语言：{{ .language"
+	if err := broken.Validate(); err == nil {
+		t.Fatal("broken fallback prompt should be rejected")
+	}
+}
+
+func TestConfigStoreMigratesLegacyPresetPlaceholder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	// 老配置里的预设用 {{language}} 占位符，升级后要能继续渲染。
+	legacy := []byte(`{"version": 2,
+  "asr": {"activeId": "default", "models": [{"id": "default", "name": "默认模型", "provider": "openai-compatible", "baseUrl": "https://asr.test/v1", "model": "m1"}]},
+  "llm": {"activeId": "default", "systemPrompt": "整理成 {{language}}。", "models": [{"id": "default", "name": "默认模型", "provider": "openai-compatible", "baseUrl": "https://llm.test/v1", "model": "m2"}],
+    "presets": [{"id": "mine", "name": "我的整理", "systemPrompt": "语言为 {{language}}。"}]},
+  "desktop": {"hotkey": "Alt+Space"}}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := NewConfigStore(path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.LLM.Presets[0].SystemPrompt; got != "语言为 {{ .language }}。" {
+		t.Fatalf("migrated preset = %q", got)
+	}
+	if got := cfg.LLM.SystemPrompt; got != "整理成 {{ .language }}。" {
+		t.Fatalf("migrated fallback prompt = %q", got)
+	}
+}
+
 func TestResolveLLMModelPrefersPresetBinding(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.LLM.Models = append(cfg.LLM.Models, LLMConfig{ID: "cheap", Name: "便宜模型", Provider: "openai-compatible", BaseURL: "https://cheap.test/v1", Model: "m-cheap"})

@@ -194,11 +194,16 @@ func (s *LLMSection) applyDefaults(d LLMSection) {
 	s.applyPresetDefaults(d)
 }
 
-// applyPresetDefaults 负责三件事：把缺失的预设补成内置列表、
-// 把用户手改过的条目归一回可用状态、让失效的模型绑定回落。
-// 零预设有两种来源——首次启动的配置，和手改坏的文件——两者都
-// 补回内置预设，应用才总能找到一个生效提示词。
+// applyPresetDefaults 负责四件事：把缺失的预设补成内置列表、把用户
+// 手改过的条目归一回可用状态、把旧版内置提示词升级成模板版本、让失效
+// 的模型绑定回落。零预设有两种来源——首次启动的配置，和手改坏的文件
+// ——两者都补回内置预设，应用才总能找到一个生效提示词。
 func (s *LLMSection) applyPresetDefaults(d LLMSection) {
+	// 旧版把默认提示词也复制进了配置；仍是原文时先升级成新模板，
+	// 这样它继续算「没改过」，不会被下面误判成「我的整理」。
+	if strings.TrimSpace(s.SystemPrompt) == legacyDefaultSystemPrompt {
+		s.SystemPrompt = defaultSystemPrompt
+	}
 	if len(s.Presets) == 0 {
 		// 旧版本把用户手改的提示词存在 systemPrompt 里；升级时
 		// 把它变成「我的整理」预设，不要悄悄丢掉用户写过的东西。
@@ -209,6 +214,7 @@ func (s *LLMSection) applyPresetDefaults(d LLMSection) {
 			s.Presets = clonePolishPresets(d.Presets)
 			s.ActivePresetID = defaultActivePresetID
 		}
+		s.normalizePromptTemplates()
 		return
 	}
 	used := make(map[string]bool, len(s.Presets))
@@ -228,14 +234,49 @@ func (s *LLMSection) applyPresetDefaults(d LLMSection) {
 			preset.ModelID = ""
 		}
 	}
+	upgradeBuiltinPresetPrompts(s.Presets)
 	if active := strings.TrimSpace(s.ActivePresetID); containsPresetID(s.Presets, active) {
 		s.ActivePresetID = active
-		return
+	} else {
+		// 生效 ID 指向不存在的预设时清空它，交给 ResolvePolishPreset
+		// 回落到列表第一个；Validate 允许空的生效 ID，这样 SaveConfig
+		// 收到的旧配置不会被一条无关的引用错误拦下。
+		s.ActivePresetID = ""
 	}
-	// 生效 ID 指向不存在的预设时清空它，交给 ResolvePolishPreset
-	// 回落到列表第一个；Validate 允许空的生效 ID，这样 SaveConfig
-	// 收到的旧配置不会被一条无关的引用错误拦下。
-	s.ActivePresetID = ""
+	s.normalizePromptTemplates()
+}
+
+// upgradeBuiltinPresetPrompts 把用户从未改过的内置预设升级到最新模板。
+// 只替换与旧文本逐字一致的条目：用户改过一个字就保持原样。
+func upgradeBuiltinPresetPrompts(presets []PolishPreset) {
+	latest := make(map[string]string, len(presets))
+	for _, preset := range defaultPolishPresets() {
+		latest[preset.ID] = preset.SystemPrompt
+	}
+	for i := range presets {
+		old, known := legacyBuiltinPrompts[presets[i].ID]
+		if !known || presets[i].SystemPrompt != old {
+			continue
+		}
+		presets[i].SystemPrompt = latest[presets[i].ID]
+	}
+}
+
+// normalizePromptTemplates 把旧占位符改写成模板变量。老配置里的
+// {{language}} 在新引擎里会被当成未定义函数，必须在渲染前换掉。
+func (s *LLMSection) normalizePromptTemplates() {
+	s.SystemPrompt = normalizePromptTemplate(s.SystemPrompt)
+	for i := range s.Presets {
+		s.Presets[i].SystemPrompt = normalizePromptTemplate(s.Presets[i].SystemPrompt)
+	}
+}
+
+func normalizePromptTemplate(text string) string {
+	if !strings.Contains(text, "{{") {
+		return text
+	}
+	text = strings.ReplaceAll(text, "{{language}}", "{{ .language }}")
+	return strings.ReplaceAll(text, "{{ language }}", "{{ .language }}")
 }
 
 func (d *DesktopConfig) applyDefaults(def DesktopConfig) {
@@ -556,6 +597,12 @@ func validateEndpoint(raw string) error {
 // ID 唯一性。用户编辑的自由文本只有在这里拦得住，界面校验只是
 // 提前提示。
 func (c Config) validatePresets() error {
+	// 兜底提示词也按模板渲染，同样要能在保存时发现语法错误。
+	if prompt := strings.TrimSpace(c.LLM.SystemPrompt); prompt != "" {
+		if err := validatePrompt(prompt); err != nil {
+			return fmt.Errorf("llm system prompt has an invalid template: %w", err)
+		}
+	}
 	presets := c.LLM.Presets
 	if len(presets) == 0 {
 		return errors.New("at least one polish preset is required")
@@ -583,6 +630,11 @@ func (c Config) validatePresets() error {
 		}
 		if len(preset.SystemPrompt) > maxPolishPromptBytes {
 			return fmt.Errorf("polish preset %q prompt is longer than %d bytes", preset.ID, maxPolishPromptBytes)
+		}
+		// 提示词按模板渲染：语法错、变量名拼错都该在保存时暴露，
+		// 而不是等到用户按下「整理文字」才失败。
+		if err := validatePrompt(preset.SystemPrompt); err != nil {
+			return fmt.Errorf("polish preset %q has an invalid template: %w", preset.ID, err)
 		}
 		if preset.ModelID != "" && !containsLLMModel(c.LLM.Models, preset.ModelID) {
 			return fmt.Errorf("polish preset %q references unknown model %q", preset.ID, preset.ModelID)

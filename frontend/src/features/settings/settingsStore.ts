@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { describeError } from '@/lib/error';
 import {
   applyDesktopSettings,
   configureHotkey,
@@ -37,7 +38,9 @@ type SettingsState = {
   // 识别语言也在记录页栏头直接切换，同样要立刻落盘。
   selectLanguage: (language: string) => Promise<void>;
   hydrate: () => Promise<void>;
-  save: () => Promise<boolean>;
+  // 保存失败时把后端拒绝的原因带回去（例如提示词模板语法错），
+  // 否则界面只能说一句无从下手的「保存失败」。
+  save: () => Promise<{ ok: boolean; error?: string }>;
 };
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
@@ -125,11 +128,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       await configureHotkey(desktop.hotkey);
       // 已存在的悬浮球立即跟随「保持置顶」等桌面偏好。
       await applyDesktopSettings();
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (error) {
       // 桌面外壳不可用时配置仍写进了 localStorage，
-      // 下次启动会重新尝试同步。
-      return false;
+      // 下次启动会重新尝试同步；失败原因交给调用方展示。
+      return { ok: false, error: describeError(error) };
     }
   },
 }));

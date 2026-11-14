@@ -13,11 +13,19 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // 提示词模板归后端所有；前端只按原样导入同一份文件，避免出现
+      // 第二份需要手动同步的提示词副本。
+      '@prompts': fileURLToPath(new URL('../backend/prompts', import.meta.url)),
     },
   },
   // 必须显式绑定 IPv4：Vite 默认的 localhost 在 macOS 上可能只监听 ::1，
   // 而 Wails 的 dev proxy 通过 127.0.0.1 连接，会得到 connection refused。
-  server: { host: '127.0.0.1', port: 5173 },
+  // fs.allow 放行上一级目录，@prompts 的 ?raw 导入在 dev server 下才读得到。
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    fs: { allow: ['..'] },
+  },
   // 桌面外壳里没有测试入口，jsdom 只为组件测试服务。
   test: {
     environment: 'jsdom',
